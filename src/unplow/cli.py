@@ -27,6 +27,8 @@ import sys
 import time
 from typing import Optional
 
+from .circuits import SwiGLUCircuitDecompressor
+from .conditioning import DOMAIN_PRIORS
 from .container import unpack_unp_container
 from .forensics import ForensicAuditLogger, get_telemetry_snapshot
 from .mechanistic import MechanisticWeightInspector
@@ -65,15 +67,32 @@ def main() -> None:
     p_probe.add_argument("-o", "--output", help="Output path for JSONL results")
 
     # Command: inspect (Mechanistic Logit Lens)
-    p_insp = subparsers.add_parser("inspect", aliases=["mechanistic"], help="Direct MLP weight inspection via Logit Lens")
+    p_insp = subparsers.add_parser(
+        "inspect", aliases=["mechanistic"], help="Direct MLP weight inspection via Logit Lens"
+    )
     p_insp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
     p_insp.add_argument("-k", "--neurons", type=int, default=6, help="Top neurons per layer to inspect (default: 6)")
     p_insp.add_argument("--top-tokens", type=int, default=5, help="Top tokens per neuron (default: 5)")
     p_insp.add_argument("--harvest", action="store_true", help="Harvest and display seed prefixes")
     p_insp.add_argument("--seeds", type=int, default=12, help="Max seed prefixes to harvest")
 
+    # Command: circuits (Coupled SwiGLU Circuits & Anisotropic Logit Lens)
+    p_circ = subparsers.add_parser(
+        "circuits", aliases=["circuit", "swiglu"], help="Extract coupled SwiGLU circuits"
+    )
+    p_circ.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_circ.add_argument("-k", "--candidates", type=int, default=24, help="Candidate neurons per layer (default: 24)")
+    p_circ.add_argument("--top-tokens", type=int, default=5, help="Top tokens per circuit key/value (default: 5)")
+    p_circ.add_argument("--layer", type=int, action="append", help="Specific layer index to inspect (repeatable)")
+    p_circ.add_argument("--allow-numerals", action="store_true", help="Include numeric and punctuation circuits")
+    p_circ.add_argument("--harvest", action="store_true", help="Harvest and display synthesized associative seeds")
+    p_circ.add_argument("--seeds", type=int, default=12, help="Max seed prefixes to harvest")
+    p_circ.add_argument("-o", "--output", help="Output path for JSON results")
+
     # Command: compress (Paradigm 2)
-    p_comp = subparsers.add_parser("compress", aliases=["p2-compress"], help="Lossless arithmetic compression (Paradigm 2)")
+    p_comp = subparsers.add_parser(
+        "compress", aliases=["p2-compress"], help="Lossless arithmetic compression (Paradigm 2)"
+    )
     p_comp.add_argument("text", nargs="?", help="Text to compress (or read from stdin/--file)")
     p_comp.add_argument("-f", "--file", help="File containing text to compress")
     p_comp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
@@ -81,7 +100,9 @@ def main() -> None:
     p_comp.add_argument("-o", "--output", help="Output binary file path")
 
     # Command: decompress (Paradigm 2)
-    p_decomp = subparsers.add_parser("decompress", aliases=["p2-decompress"], help="Lossless arithmetic decompression (Paradigm 2)")
+    p_decomp = subparsers.add_parser(
+        "decompress", aliases=["p2-decompress"], help="Lossless arithmetic decompression (Paradigm 2)"
+    )
     p_decomp.add_argument("payload_file", help="Path to compressed payload file (.bin)")
     p_decomp.add_argument("-t", "--tokens", type=int, required=True, help="Exact number of tokens in original text")
     p_decomp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
@@ -89,12 +110,24 @@ def main() -> None:
     p_decomp.add_argument("-o", "--output", help="Output file path for reconstructed text")
 
     # Command: archive (Paradigm 2 .unp Container)
-    p_arch = subparsers.add_parser("archive", aliases=["pack"], help="Pack file/text into self-verifying .unp container")
+    p_arch = subparsers.add_parser(
+        "archive", aliases=["pack"], help="Pack file/text into self-verifying .unp container"
+    )
     p_arch.add_argument("file", nargs="?", help="Path to input text/source file")
     p_arch.add_argument("--text", help="Direct text to pack into container")
     p_arch.add_argument("-o", "--output", help="Output .unp archive path")
     p_arch.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
     p_arch.add_argument("--max-ctx-len", type=int, default=512, help="Context horizon window (default: 512)")
+    p_arch.add_argument(
+        "--domain",
+        default=None,
+        help="Domain conditioning prior (0..15, prose_tech, python_code, etc. or 'auto')",
+    )
+    p_arch.add_argument(
+        "--auto-domain",
+        action="store_true",
+        help="Auto-select optimal domain prior using MDL cross-entropy",
+    )
 
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
@@ -103,7 +136,9 @@ def main() -> None:
     p_unarch.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
 
     # Command: manifold (Paradigm 2)
-    p_mani = subparsers.add_parser("manifold", aliases=["p2-manifold"], help="Generative seed decompression (Paradigm 2)")
+    p_mani = subparsers.add_parser(
+        "manifold", aliases=["p2-manifold"], help="Generative seed decompression (Paradigm 2)"
+    )
     p_mani.add_argument("-s", "--seed", default="unplow_latent_manifold", help="Seed string or arbitrary byte text")
     p_mani.add_argument("-t", "--tokens", type=int, default=30, help="Number of tokens to generate (default: 30)")
     p_mani.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
@@ -122,7 +157,11 @@ def main() -> None:
 
     # Command: enqueue
     p_enq = subparsers.add_parser("enqueue", help="Add asynchronous task to file queue")
-    p_enq.add_argument("action", choices=["probe", "compress", "decompress", "manifold", "archive", "unarchive"], help="Task action")
+    p_enq.add_argument(
+        "action",
+        choices=["probe", "compress", "decompress", "manifold", "archive", "unarchive", "circuits"],
+        help="Task action",
+    )
     p_enq.add_argument("--payload", default="", help="Text or payload string")
     p_enq.add_argument("--extra", default="{}", help="JSON dictionary of extra parameters")
 
@@ -150,7 +189,8 @@ def main() -> None:
         print(f"[*] Initializing Paradigm 1 Weight Decompressor (model: {args.model})...")
         decompressor = WeightDecompressor(model_name=args.model)
         prefixes = args.prefix if args.prefix else None
-        print(f"[*] Probing {args.samples} weight basins (seq_len={args.seq_len}, explore_steps={args.explore_steps})...")
+        print(f"[*] Probing {args.samples} weight basins "
+              f"(seq_len={args.seq_len}, explore_steps={args.explore_steps})...")
         records = decompressor.probe_weight_basins(
             num_samples=args.samples,
             seq_len=args.seq_len,
@@ -191,6 +231,47 @@ def main() -> None:
             for s in seeds:
                 print(f"    {repr(s)}")
 
+    elif args.command in ("circuits", "circuit", "swiglu"):
+        print(f"[*] Initializing SwiGLU Circuit Decompressor (model: {args.model})...")
+        decompressor = SwiGLUCircuitDecompressor(model_name=args.model)
+        layers = args.layer if args.layer else None
+        suppress_num = not getattr(args, "allow_numerals", False)
+        print(f"[*] Extracting coupled SwiGLU circuits "
+              f"(candidates={args.candidates}, suppress_numerals={suppress_num})...")
+        circuits = decompressor.extract_coupled_circuits(
+            layer_indices=layers,
+            candidates_per_layer=args.candidates,
+            top_k_tokens=args.top_tokens,
+            suppress_numerals=suppress_num,
+        )
+
+        print(f"\n=== [Coupled SwiGLU Circuits & Anisotropic Logit Lens] ({len(circuits)} circuits found) ===")
+        print(f"{'Layer':<6} {'Neuron':<8} {'Centered L2':<13} {'Selectivity':<13} "
+              f"{'Trigger Key':<20} {'Target Value':<20}")
+        print("-" * 84)
+        for c in circuits[:25]:
+            k_disp = str(c.trigger_key_tokens[:3])
+            v_disp = str(c.target_value_tokens[:3])
+            print(f"{c.layer_idx:<6} {c.neuron_idx:<8} {c.centered_l2_norm:<13.4f} {c.selectivity_margin:<13.4f} "
+                  f"{k_disp:<20} {v_disp:<20}")
+
+        if args.harvest or getattr(args, "seeds", 0) > 0:
+            seeds = decompressor.harvest_associative_seeds(
+                max_seeds=args.seeds,
+                layer_indices=layers,
+                suppress_numerals=suppress_num,
+            )
+            print(f"\n[+] Harvested {len(seeds)} Associative Seeds for Weight Probing:")
+            for s in seeds:
+                print(f"  - {s!r}")
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_p, "w", encoding="utf-8") as f:
+                json.dump([c.to_dict() for c in circuits], f, indent=2)
+            print(f"\n[+] Exported {len(circuits)} circuit traces to {out_p}")
+
     elif args.command in ("archive", "pack"):
         text = args.text
         if args.file:
@@ -206,23 +287,28 @@ def main() -> None:
             print("[-] Error: No text supplied for .unp archive.", file=sys.stderr)
             sys.exit(1)
 
-        print(f"[*] Packing into .unp container using model: {args.model} (max_ctx: {args.max_ctx_len})...")
+        domain_choice = "auto" if getattr(args, "auto_domain", False) else (args.domain or 0)
+        print(f"[*] Packing into .unp container using model: {args.model} "
+              f"(domain: {domain_choice}, max_ctx: {args.max_ctx_len})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         container_bytes, meta, stats = codec.compress_to_container(
             text=text,
             max_ctx_len=args.max_ctx_len,
             verify_hash=True,
+            domain_id=domain_choice,
         )
 
         out_path = Path(args.output) if args.output else Path(f"{args.file or 'payload'}.unp")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(container_bytes)
 
+        dom_name = DOMAIN_PRIORS.get(meta.domain_id, ("unknown", ""))[0]
         print("\n=== .unp Binary Archive Created ===")
         print(f"Destination       : {out_path} ({len(container_bytes)} bytes)")
         print(f"Original Text     : {stats.original_bytes} bytes ({stats.num_tokens} tokens)")
         print(f"Bits per Byte     : {stats.bits_per_byte} bpb")
         print(f"Compression Ratio : {stats.compression_ratio}:1 ({stats.savings_percent}% reduction)")
+        print(f"Domain Prior      : ID {meta.domain_id} ({dom_name})")
         print(f"Header SHA256 Pre : {meta.sha256_prefix_hex}")
 
     elif args.command in ("unarchive", "unpack"):
@@ -238,9 +324,12 @@ def main() -> None:
         text, meta, is_valid = codec.decompress_from_container(container_bytes)
         elapsed = time.time() - t0
 
+        dom_name = DOMAIN_PRIORS.get(meta.domain_id, ("unknown", ""))[0]
         print(f"\n=== .unp Archive Decompression Verified ===")
-        print(f"Tokens Decoded    : {meta.num_tokens} tokens in {elapsed:.2f}s ({meta.num_tokens / max(elapsed, 0.001):.1f} tok/s)")
+        print(f"Tokens Decoded    : {meta.num_tokens} tokens in {elapsed:.2f}s "
+              f"({meta.num_tokens / max(elapsed, 0.001):.1f} tok/s)")
         print(f"Context Stride    : {meta.max_ctx_len}")
+        print(f"Domain Prior      : ID {meta.domain_id} ({dom_name})")
         print(f"SHA-256 Checksum  : {'VERIFIED MATCH' if is_valid else 'CHECKSUM MISMATCH'}")
 
         if args.output:

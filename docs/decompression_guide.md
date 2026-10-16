@@ -8,7 +8,10 @@ Under Claude Shannon's source coding theorem (1948), an autoregressive language
 model parameterizing conditional distributions $P_{\theta}(x_t \mid x_{<t})$
 defines an optimal code length for any sequence:
 
-$$L(x_{1..T}) = \sum_{t=1}^{T} -\log_2 P_{\theta}(x_t \mid x_{<t}) \quad \text{bits}$$
+$$
+L(x_{1..T}) = \sum_{t=1}^{T} -\log_2 P_{\theta}(x_t \mid x_{<t})
+\quad \text{bits}
+$$
 
 Minimizing cross-entropy loss during pre-training is mathematically identical to
 minimizing the expected description length of the training corpus. When viewing
@@ -49,7 +52,10 @@ in upper-middle layers ($l \in [16, 26]$) encode localized key-value memories.
 By projecting these value vectors through the final normalization and
 unembedding matrix:
 
-$$\mathbf{z}_i^{(l)} = W_U \cdot \text{RMSNorm}_{\text{final}}\left(\mathbf{v}_i^{(l)}\right)$$
+$$
+\mathbf{z}_i^{(l)} = W_U \cdot
+\text{RMSNorm}_{\text{final}}\left(\mathbf{v}_i^{(l)}\right)
+$$
 
 `unplow` extracts high-salience vocabulary clusters directly from static weights
 without running forward attention passes, feeding them as high-yield seeds.
@@ -85,5 +91,32 @@ Specialized code models ($\theta_{\text{coder}}$) assign lower cross-entropy to
 AST syntax and indentation transitions. By matching the model prior to the
 payload domain, arithmetic interval narrowing achieves higher compression
 ratios ($<1.4$ bpb) without dictionary warmup penalties.
+
+### Zero-Bit Domain Prior Pre-Warming (Phase 3)
+In Phase 3, `.unp` binary archives utilize bits 4..7 of the 1-byte `flags` field
+to encode a 4-bit Domain Prior ID (0..15) with zero bitstream overhead:
+- **0**: Raw (unconditioned BOS fallback)
+- **1**: `prose_tech` (technical specification on sequence modeling)
+- **2**: `python_code` (Python 3 module header and standard imports)
+- **3**: `c_firmware` (C/C++ firmware headers and low-level routines)
+- **4**: `json_telemetry` (JSON telemetry schema preamble)
+
+Both compressor and decompressor pre-warm the LLM KV-cache with the
+deterministic domain preamble before token 0. The MDL auto-router
+(`--auto-domain`) evaluates target Shannon cross-entropy across all
+registered priors in a single batched pass and packs the optimal domain index
+into the header.
+
+### Mechanistic Weight Decompression via SwiGLU Circuits (Phase 3)
+`unplow circuits` harvests multi-token associative rules directly from static
+SwiGLU matrices:
+1. Mean-centers `down_proj` columns:
+   $\tilde{\mathbf{v}} = \mathbf{v} - \bar{\mathbf{v}}$ to suppress massive
+   late-layer directional bias.
+2. Filters by selectivity margin $z_{(1)} - z_{(50)}$ to remove universal
+   numeral amplifiers.
+3. Unembeds combined SwiGLU receptor keys
+   ($\mathbf{w}_{\text{gate}} + \mathbf{w}_{\text{up}}$) against token
+   embeddings $W_E$, discovering multi-token trigger phrases.
 
 <!-- end of file: unplow/docs/decompression_guide.md -->

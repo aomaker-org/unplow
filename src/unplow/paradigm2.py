@@ -18,6 +18,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 
+from .conditioning import (
+    logits_to_integer_cdf_fast,
+    prewarm_kv_cache_for_domain,
+    resolve_domain_id,
+    select_optimal_domain_mdl,
+)
 from .container import (
     UnpArchiveMetadata,
     pack_unp_container,
@@ -86,28 +92,14 @@ class LLMArithmeticCodec:
 
         Ensures C[0] = 0, C[V] = TOTAL_FREQ, and C[i+1] - C[i] >= 1 for all i.
         """
-        probs = torch.softmax(logits.to(torch.float64), dim=-1).cpu().numpy()
-        vocab_size = probs.shape[0]
-        remaining_mass = TOTAL_FREQ - vocab_size
-        if remaining_mass <= 0:
-            raise ValueError(
-                f"TOTAL_FREQ ({TOTAL_FREQ}) must exceed model vocab_size ({vocab_size})."
-            )
-
-        # Every token receives at least 1 unit of frequency mass
-        freqs = np.floor(probs * remaining_mass).astype(np.int64) + 1
-        remainder = TOTAL_FREQ - int(np.sum(freqs))
-        freqs[np.argmax(probs)] += remainder
-
-        cdf = np.zeros(vocab_size + 1, dtype=np.int64)
-        np.cumsum(freqs, out=cdf[1:])
-        return cdf
+        return logits_to_integer_cdf_fast(logits)
 
     @torch.no_grad()
     def compress(
         self,
         text: str,
         max_ctx_len: Optional[int] = None,
+        domain_id: int = 0,
     ) -> Tuple[bytes, int, CompressionStats]:
         """Compress text into an arithmetic bitstream using the LLM distribution.
 
@@ -130,8 +122,17 @@ class LLMArithmeticCodec:
                 output_bits.append(1 - bit)
                 pending_bits -= 1
 
-        curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
-        past_key_values = None
+        if domain_id > 0:
+            curr_input, past_key_values = prewarm_kv_cache_for_domain(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                domain_id=domain_id,
+                bos_token_id=self.bos_token_id,
+                device=self.device,
+            )
+        else:
+            curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
+            past_key_values = None
 
         for step, token in enumerate(token_ids):
             if max_ctx_len and max_ctx_len >= 4 and step > 0 and step % (max_ctx_len // 2) == 0:
@@ -143,7 +144,7 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            cdf = self.logits_to_integer_cdf(outputs.logits[0, -1, :])
+            cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
 
             span = high - low + 1
             c_low = int(cdf[token])
@@ -206,6 +207,7 @@ class LLMArithmeticCodec:
         compressed_bytes: bytes,
         num_tokens: int,
         max_ctx_len: Optional[int] = None,
+        domain_id: int = 0,
     ) -> str:
         """Decompress an arithmetic bitstream back to exact original text.
 
@@ -234,8 +236,17 @@ class LLMArithmeticCodec:
             value = (value << 1) | read_bit()
 
         decoded_tokens: List[int] = []
-        curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
-        past_key_values = None
+        if domain_id > 0:
+            curr_input, past_key_values = prewarm_kv_cache_for_domain(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                domain_id=domain_id,
+                bos_token_id=self.bos_token_id,
+                device=self.device,
+            )
+        else:
+            curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
+            past_key_values = None
 
         for step in range(num_tokens):
             if max_ctx_len and max_ctx_len >= 4 and step > 0 and step % (max_ctx_len // 2) == 0:
@@ -247,7 +258,7 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            cdf = self.logits_to_integer_cdf(outputs.logits[0, -1, :])
+            cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
 
             span = high - low + 1
             scaled_target = ((value - low + 1) * TOTAL_FREQ - 1) // span
@@ -285,15 +296,31 @@ class LLMArithmeticCodec:
         text: str,
         max_ctx_len: int = 512,
         verify_hash: bool = True,
+        domain_id: Union[int, str] = 0,
     ) -> Tuple[bytes, UnpArchiveMetadata, CompressionStats]:
         """Compress text directly into a self-verifying .unp binary archive."""
-        payload, num_tokens, stats = self.compress(text, max_ctx_len=max_ctx_len)
+        if domain_id == "auto":
+            best_id, _, _ = select_optimal_domain_mdl(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                plaintext=text,
+                device=self.device,
+                bos_token_id=self.bos_token_id,
+            )
+            dom_int = best_id
+        else:
+            dom_int = resolve_domain_id(domain_id)
+
+        payload, num_tokens, stats = self.compress(
+            text, max_ctx_len=max_ctx_len, domain_id=dom_int
+        )
         container_bytes = pack_unp_container(
             bitstream=payload,
             num_tokens=num_tokens,
             max_ctx_len=max_ctx_len,
             plaintext=text,
             verify_hash=verify_hash,
+            domain_id=dom_int,
         )
         meta, _ = unpack_unp_container(container_bytes)
         return container_bytes, meta, stats
@@ -308,6 +335,7 @@ class LLMArithmeticCodec:
             bitstream,
             num_tokens=meta.num_tokens,
             max_ctx_len=meta.max_ctx_len if meta.max_ctx_len > 0 else None,
+            domain_id=meta.domain_id,
         )
         is_valid = verify_unp_checksum(meta, text)
         return text, meta, is_valid

@@ -48,4 +48,28 @@ def test_cli_status():
     assert "Hostname" in result.stdout
     assert "Task Queue" in result.stdout
 
+
+def test_cli_circuits_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "circuits", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--candidates" in result.stdout
+    assert "--top-tokens" in result.stdout
+    assert "--allow-numerals" in result.stdout
+    assert "--harvest" in result.stdout
+
+
+def test_cli_archive_domain_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "archive", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--domain" in result.stdout
+    assert "--auto-domain" in result.stdout
+
 # end of file: unplow/tests/test_cli.py
