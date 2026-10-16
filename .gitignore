@@ -1,0 +1,92 @@
+# Path: unplow/.gitignore
+# Git ignore rules for unplow workspace
+
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+.venv*/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Runtime / Queue / Logs
+logs/forensics/*.log
+logs/forensics/*.jsonl
+logs/heartbeat/*.json
+logs/unplow/*.log
+logs/tasks/
+/records/queue/*/*.json
+!/records/queue/*/.gitkeep
+/workspace/work_products/*
+!/workspace/work_products/.gitkeep
+/workspace/targets/*
+!/workspace/targets/.gitkeep
+
+# Large language models and binaries (never commit weights/GGUF blobs)
+/models/cache/
+/models/outputs/
+/models/qwen2.5-1.5b-instruct
+*.gguf
+*.bin
+*.safetensors
+
+# Backup and temporary files
+*.bak
+*.bak_*
+
+# Environment & credentials
+.env
+.env.*
+!.env.example
+
+# IDE & Editor artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# end of file: unplow/.gitignore

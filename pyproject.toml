@@ -1,0 +1,36 @@
+[project]
+name = "unplow"
+version = "0.1.0"
+description = "Autonomous LLM decompression engine, latent manifold extractor, and arithmetic codec"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Fred Kerr", email = "fekerr@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+dependencies = [
+    "numpy>=1.26.0",
+    "torch>=2.0.0",
+    "transformers>=4.38.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov",
+]
+
+[project.scripts]
+unplow = "unplow.cli:main"
+decompressor = "unplow.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

@@ -1,0 +1,86 @@
+# Path: unplow/docs/architecture.md
+# unplow Architectural Specification
+# Max Column: 80 Columns
+
+## 1. Overview & Purpose
+
+`unplow` is a dedicated research laboratory and runtime engine designed for
+treating Large Language Models as compressed data archives and implementing
+dual mathematical decompression paradigms:
+
+1. **Lossy Static Weight Decompression (Paradigm 1)**:
+   Extracts memorized pre-training data directly from static parameters $\theta$
+   using temperature-annealed parameter basin exploration and Carlini et al.
+   entropy calibration without requiring any external bitstream.
+2. **Lossless Autoregressive Arithmetic Decompression (Paradigm 2)**:
+   Pairs the LLM's next-token predictive probability distribution with a
+   32-bit fixed-point Arithmetic Coder to achieve lossless text compression/
+   decompression and deterministic generative decompression of arbitrary seeds.
+
+---
+
+## 2. Component Topology
+
+```
++-------------------------------------------------------------------------+
+|                          CLI Engine (unplow)                            |
+|    (probe, compress, decompress, manifold, benchmark, status, daemon)   |
++------------------------------------+------------------------------------+
+                                     |
+                                     v
++------------------------------------+------------------------------------+
+|                   Decompression Worker Supervisor                       |
+|           - Additive File Handler (Directive 07)                        |
+|           - Forensic Audit Logger (Directive 02)                        |
+|           - Process Heartbeat & Telemetry (Directive 17)                |
++------------------+----------------------------------+-------------------+
+                   |                                  |
+                   v                                  v
++------------------+---------------+  +---------------+-------------------+
+|        File-Backed Queue         |  |         Decompression Engines     |
+|  - records/queue/incoming/       |  |  [Paradigm 1] WeightDecompressor  |
+|  - records/queue/processing/     |  |  - Temperature Basin Exploration  |
+|  - records/queue/done/           |  |  - Carlini Memorization Scoring   |
+|  - records/queue/failed/         |  |  [Paradigm 2] LLMArithmeticCodec  |
+|  - POSIX fcntl.flock concurrency |  |  - 32-bit Integer Interval Coding |
++----------------------------------+  |  - Generative Manifold Extractor  |
+                                      +-----------------+-----------------+
+                                                        |
+                                                        v
+                                      +-----------------+-----------------+
+                                      |        Model Substrate            |
+                                      |  - Local Safetensors Snapshots    |
+                                      |  - Deterministic Mock Evaluator   |
+                                      |  - Ollama & GGUF Local Endpoints  |
+                                      +-----------------------------------+
+```
+
+---
+
+## 3. Queue State Machine & Concurrency
+
+The file-backed queue enforces atomic state transitions using POSIX advisory
+file locking (`fcntl.flock(fd, LOCK_EX | LOCK_NB)`):
+
+1. **`incoming/`**: Client or CLI enqueues task JSON payload atomically via
+   dot-prefixed temporary file write and `os.replace`.
+2. **`processing/`**: Worker acquires exclusive advisory lock, moves task file
+   into `processing/`, records start timestamp and process PID.
+3. **`done/`**: On successful execution, output result and metrics are stored,
+   and file is moved atomically to `done/`.
+4. **`failed/`**: On unhandled error, exception trace is recorded, and file is
+   moved to `failed/`.
+
+---
+
+## 4. Air-Gap Safety & Forensic Audit Trail
+
+- **Air-Gap Guardrails**: Directives 01 and 18 mandate 100% offline execution.
+  Outbound network destinations are rejected at runtime; all operations are
+  confined to localhost loopback interfaces and local model weights.
+- **Cryptographic Audit Ledger**: Every task dispatch, prompt, compression
+  payload, and extracted text is logged to
+  `logs/forensics/audit_journal.jsonl` with ISO-8601 UTC microsecond timestamps,
+  SHA-256 digests, and VmRSS memory metrics.
+
+<!-- end of file: unplow/docs/architecture.md -->
