@@ -15,8 +15,11 @@ def test_cli_help():
     assert result.returncode == 0
     assert "unplow - Autonomous LLM Decompression Engine" in result.stdout
     assert "probe" in result.stdout
+    assert "inspect" in result.stdout
     assert "compress" in result.stdout
     assert "decompress" in result.stdout
+    assert "archive" in result.stdout
+    assert "unarchive" in result.stdout
     assert "manifold" in result.stdout
     assert "benchmark" in result.stdout
     assert "models" in result.stdout

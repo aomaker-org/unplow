@@ -182,6 +182,44 @@ class DecompressionWorker:
                 result_json = json.dumps(output_dict, indent=2)
                 art_path = self.work_products_dir / f"{task.task_id}_manifold.txt"
                 self.file_handler.write_additive_text(art_path, unpacked)
+            elif action in ("archive", "pack"):
+                text = task.payload or task.extra.get("text", "")
+                max_ctx = task.extra.get("max_ctx_len", 512)
+                codec = self.get_p2_codec()
+                container_bytes, meta, stats = codec.compress_to_container(text, max_ctx_len=max_ctx, verify_hash=True)
+                b64_container = base64.b64encode(container_bytes).decode("ascii")
+
+                output_dict = {
+                    "paradigm": 2,
+                    "action": "archive",
+                    "model": codec.model_path,
+                    "b64_container": b64_container,
+                    "metadata": meta.to_dict(),
+                    "stats": stats.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                unp_path = self.work_products_dir / f"{task.task_id}.unp"
+                self.file_handler.write_additive_bytes(unp_path, container_bytes)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=codec.model_path)
+                self.processed_count += 1
+
+            elif action in ("unarchive", "unpack"):
+                codec = self.get_p2_codec()
+                b64_container = task.payload or task.extra.get("b64_container", "")
+                container_bytes = base64.b64decode(b64_container.encode("ascii"))
+                reconstructed, meta, is_valid = codec.decompress_from_container(container_bytes)
+
+                output_dict = {
+                    "paradigm": 2,
+                    "action": "unarchive",
+                    "model": codec.model_path,
+                    "reconstructed_text": reconstructed,
+                    "metadata": meta.to_dict(),
+                    "checksum_valid": is_valid,
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_unpacked.txt"
+                self.file_handler.write_additive_text(art_path, reconstructed)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=codec.model_path)
                 self.processed_count += 1
 

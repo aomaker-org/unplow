@@ -5,7 +5,7 @@ SHELL := /bin/bash
 PYTHON := uv run python
 PYTEST := uv run pytest
 
-.PHONY: help venv install test test-cov lint status models probe compress decompress manifold benchmark daemon view watch sync clean
+.PHONY: help venv install test test-cov lint status models inspect probe compress decompress archive unarchive manifold benchmark daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -14,9 +14,12 @@ help:
 	@echo "  make test-cov   - Run test suite with coverage report"
 	@echo "  make status     - Check queue status and backend availability"
 	@echo "  make models     - Audit local LLMs available for decompression"
+	@echo "  make inspect    - Direct mechanistic MLP weight inspection via Logit Lens"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
+	@echo "  make archive    - Pack text/file into self-verifying .unp container"
+	@echo "  make unarchive  - Unpack and verify .unp container"
 	@echo "  make manifold   - Decompress arbitrary seed through LLM manifold"
 	@echo "  make benchmark  - Run decompression benchmark (bpb, speed, RSS)"
 	@echo "  make daemon     - Run background worker daemon"
@@ -47,6 +50,9 @@ status:
 models:
 	uv run unplow models
 
+inspect:
+	uv run unplow inspect --harvest
+
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
 
@@ -55,6 +61,12 @@ compress:
 
 decompress:
 	@echo "Run: uv run unplow decompress <payload_file> --tokens <num_tokens>"
+
+archive:
+	uv run unplow archive --text "Information theory connects sequence modeling with data compression." -o workspace/targets/sample.unp
+
+unarchive:
+	uv run unplow unarchive workspace/targets/sample.unp
 
 manifold:
 	uv run unplow manifold --seed "unplow_latent_manifold" --tokens 20

@@ -2,16 +2,19 @@
 """Command-line interface for unplow.
 
 Provides interactive, queued, forensic auditing, and inference benchmarking subcommands:
-  - probe      : Unpack static weight basins & rank memorization (Paradigm 1)
-  - compress   : Lossless autoregressive arithmetic compression (Paradigm 2)
-  - decompress : Exact lossless arithmetic decompression (Paradigm 2)
-  - manifold   : Generative seed decompression through LLM manifold (Paradigm 2)
-  - benchmark  : Measure compression ratio, bits/byte, tok/s, RSS memory
-  - models     : Probe and audit local LLM models available on the system
-  - status     : Display task queue counts, telemetry, and daemon heartbeat
-  - enqueue    : Add asynchronous decompression task to atomic file queue
-  - daemon     : Run background worker polling loop with verbose telemetry
-  - forensics  : Inspect cryptographic audit journal and execution traces
+  - probe       : Unpack static weight basins & rank memorization (Paradigm 1)
+  - inspect     : Direct MLP weight inspection via Logit Lens (Geva et al., 2021)
+  - compress    : Lossless autoregressive arithmetic compression (Paradigm 2)
+  - decompress  : Exact lossless arithmetic decompression (Paradigm 2)
+  - archive     : Pack file/text into self-verifying .unp binary container
+  - unarchive   : Unpack and verify .unp binary container
+  - manifold    : Generative seed decompression through LLM manifold (Paradigm 2)
+  - benchmark   : Measure compression ratio, bits/byte, tok/s, RSS memory
+  - models      : Probe and audit local LLM models available on the system
+  - status      : Display task queue counts, telemetry, and daemon heartbeat
+  - enqueue     : Add asynchronous decompression task to atomic file queue
+  - daemon      : Run background worker polling loop with verbose telemetry
+  - forensics   : Inspect cryptographic audit journal and execution traces
 """
 
 import argparse
@@ -24,7 +27,9 @@ import sys
 import time
 from typing import Optional
 
+from .container import unpack_unp_container
 from .forensics import ForensicAuditLogger, get_telemetry_snapshot
+from .mechanistic import MechanisticWeightInspector
 from .models import audit_system_models, resolve_model_path
 from .paradigm1 import WeightDecompressor
 from .paradigm2 import LLMArithmeticCodec
@@ -56,13 +61,23 @@ def main() -> None:
     p_probe.add_argument("--explore-steps", type=int, default=12, help="High-temp exploration steps (default: 12)")
     p_probe.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
     p_probe.add_argument("--prefix", action="append", help="Custom seed prefix (can repeat)")
+    p_probe.add_argument("--mechanistic", action="store_true", help="Harvest seeds directly from MLP weights")
     p_probe.add_argument("-o", "--output", help="Output path for JSONL results")
+
+    # Command: inspect (Mechanistic Logit Lens)
+    p_insp = subparsers.add_parser("inspect", aliases=["mechanistic"], help="Direct MLP weight inspection via Logit Lens")
+    p_insp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_insp.add_argument("-k", "--neurons", type=int, default=6, help="Top neurons per layer to inspect (default: 6)")
+    p_insp.add_argument("--top-tokens", type=int, default=5, help="Top tokens per neuron (default: 5)")
+    p_insp.add_argument("--harvest", action="store_true", help="Harvest and display seed prefixes")
+    p_insp.add_argument("--seeds", type=int, default=12, help="Max seed prefixes to harvest")
 
     # Command: compress (Paradigm 2)
     p_comp = subparsers.add_parser("compress", aliases=["p2-compress"], help="Lossless arithmetic compression (Paradigm 2)")
     p_comp.add_argument("text", nargs="?", help="Text to compress (or read from stdin/--file)")
     p_comp.add_argument("-f", "--file", help="File containing text to compress")
     p_comp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_comp.add_argument("--max-ctx-len", type=int, default=None, help="Context horizon window")
     p_comp.add_argument("-o", "--output", help="Output binary file path")
 
     # Command: decompress (Paradigm 2)
@@ -70,7 +85,22 @@ def main() -> None:
     p_decomp.add_argument("payload_file", help="Path to compressed payload file (.bin)")
     p_decomp.add_argument("-t", "--tokens", type=int, required=True, help="Exact number of tokens in original text")
     p_decomp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_decomp.add_argument("--max-ctx-len", type=int, default=None, help="Context horizon window")
     p_decomp.add_argument("-o", "--output", help="Output file path for reconstructed text")
+
+    # Command: archive (Paradigm 2 .unp Container)
+    p_arch = subparsers.add_parser("archive", aliases=["pack"], help="Pack file/text into self-verifying .unp container")
+    p_arch.add_argument("file", nargs="?", help="Path to input text/source file")
+    p_arch.add_argument("--text", help="Direct text to pack into container")
+    p_arch.add_argument("-o", "--output", help="Output .unp archive path")
+    p_arch.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_arch.add_argument("--max-ctx-len", type=int, default=512, help="Context horizon window (default: 512)")
+
+    # Command: unarchive (Paradigm 2 .unp Container)
+    p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
+    p_unarch.add_argument("archive_file", help="Path to .unp archive file")
+    p_unarch.add_argument("-o", "--output", help="Output file path for reconstructed text")
+    p_unarch.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
 
     # Command: manifold (Paradigm 2)
     p_mani = subparsers.add_parser("manifold", aliases=["p2-manifold"], help="Generative seed decompression (Paradigm 2)")
@@ -92,7 +122,7 @@ def main() -> None:
 
     # Command: enqueue
     p_enq = subparsers.add_parser("enqueue", help="Add asynchronous task to file queue")
-    p_enq.add_argument("action", choices=["probe", "compress", "decompress", "manifold"], help="Task action")
+    p_enq.add_argument("action", choices=["probe", "compress", "decompress", "manifold", "archive", "unarchive"], help="Task action")
     p_enq.add_argument("--payload", default="", help="Text or payload string")
     p_enq.add_argument("--extra", default="{}", help="JSON dictionary of extra parameters")
 
@@ -126,6 +156,7 @@ def main() -> None:
             seq_len=args.seq_len,
             explore_steps=args.explore_steps,
             seed_prefixes=prefixes,
+            use_mechanistic_seeds=getattr(args, "mechanistic", False),
         )
 
         print("\n=== [Paradigm 1] Decompressed Weight Basins (Ranked by Carlini Memorization Score) ===")
@@ -142,6 +173,85 @@ def main() -> None:
             decompressor.save_records_to_jsonl(records, out_p)
             print(f"\n[+] Saved {len(records)} records to {out_p}")
 
+    elif args.command in ("inspect", "mechanistic"):
+        print(f"[*] Initializing Mechanistic Weight Inspector (model: {args.model})...")
+        inspector = MechanisticWeightInspector(model_name=args.model)
+        traces = inspector.extract_mlp_memory_clusters(
+            top_neurons_per_layer=args.neurons,
+            top_k_tokens=args.top_tokens,
+        )
+        print(f"\n=== Mechanistic MLP Down-Projection Value Clusters ({len(traces)} neurons analyzed) ===")
+        for tr in traces[:15]:
+            toks_str = ", ".join(repr(t) for t in tr.top_tokens)
+            print(f"- Layer {tr.layer_idx:02d} Neuron #{tr.neuron_idx:04d} (L2: {tr.l2_norm:.4f}) -> [{toks_str}]")
+
+        if args.harvest:
+            seeds = inspector.harvest_seed_prefixes(num_seeds=args.seeds)
+            print(f"\n[+] Harvested {len(seeds)} Mechanistic Seed Prefixes:")
+            for s in seeds:
+                print(f"    {repr(s)}")
+
+    elif args.command in ("archive", "pack"):
+        text = args.text
+        if args.file:
+            p = Path(args.file)
+            if not p.exists():
+                print(f"[-] Error: Target file '{args.file}' not found.", file=sys.stderr)
+                sys.exit(1)
+            text = p.read_text(encoding="utf-8")
+        elif not text and not sys.stdin.isatty():
+            text = sys.stdin.read()
+
+        if not text:
+            print("[-] Error: No text supplied for .unp archive.", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"[*] Packing into .unp container using model: {args.model} (max_ctx: {args.max_ctx_len})...")
+        codec = LLMArithmeticCodec(model_name=args.model)
+        container_bytes, meta, stats = codec.compress_to_container(
+            text=text,
+            max_ctx_len=args.max_ctx_len,
+            verify_hash=True,
+        )
+
+        out_path = Path(args.output) if args.output else Path(f"{args.file or 'payload'}.unp")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(container_bytes)
+
+        print("\n=== .unp Binary Archive Created ===")
+        print(f"Destination       : {out_path} ({len(container_bytes)} bytes)")
+        print(f"Original Text     : {stats.original_bytes} bytes ({stats.num_tokens} tokens)")
+        print(f"Bits per Byte     : {stats.bits_per_byte} bpb")
+        print(f"Compression Ratio : {stats.compression_ratio}:1 ({stats.savings_percent}% reduction)")
+        print(f"Header SHA256 Pre : {meta.sha256_prefix_hex}")
+
+    elif args.command in ("unarchive", "unpack"):
+        p = Path(args.archive_file)
+        if not p.exists():
+            print(f"[-] Error: Archive '{args.archive_file}' not found.", file=sys.stderr)
+            sys.exit(1)
+
+        container_bytes = p.read_bytes()
+        print(f"[*] Unpacking .unp container from {p} (model: {args.model})...")
+        codec = LLMArithmeticCodec(model_name=args.model)
+        t0 = time.time()
+        text, meta, is_valid = codec.decompress_from_container(container_bytes)
+        elapsed = time.time() - t0
+
+        print(f"\n=== .unp Archive Decompression Verified ===")
+        print(f"Tokens Decoded    : {meta.num_tokens} tokens in {elapsed:.2f}s ({meta.num_tokens / max(elapsed, 0.001):.1f} tok/s)")
+        print(f"Context Stride    : {meta.max_ctx_len}")
+        print(f"SHA-256 Checksum  : {'VERIFIED MATCH' if is_valid else 'CHECKSUM MISMATCH'}")
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_text(text, encoding="utf-8")
+            print(f"[+] Reconstructed plaintext saved to {out_p}")
+        else:
+            print("\n--- Plaintext Output ---")
+            print(text)
+
     elif args.command in ("compress", "p2-compress"):
         text = args.text
         if args.file:
@@ -155,7 +265,7 @@ def main() -> None:
 
         print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model})...")
         codec = LLMArithmeticCodec(model_name=args.model)
-        payload, n_tokens, stats = codec.compress(text)
+        payload, n_tokens, stats = codec.compress(text, max_ctx_len=args.max_ctx_len)
 
         print("\n=== [Paradigm 2] Lossless Arithmetic Compression Results ===")
         print(f"Original Size     : {stats.original_bytes} bytes ({stats.num_tokens} tokens)")
@@ -184,7 +294,7 @@ def main() -> None:
         codec = LLMArithmeticCodec(model_name=args.model)
         print(f"[*] Decompressing {len(payload_bytes)} bytes into {args.tokens} tokens...")
         t0 = time.time()
-        reconstructed = codec.decompress(payload_bytes, num_tokens=args.tokens)
+        reconstructed = codec.decompress(payload_bytes, num_tokens=args.tokens, max_ctx_len=args.max_ctx_len)
         elapsed = time.time() - t0
 
         print("\n=== [Paradigm 2] Lossless Reconstructed Text ===")

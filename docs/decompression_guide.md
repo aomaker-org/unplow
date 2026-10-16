@@ -41,6 +41,19 @@ $$\mathcal{M}(x) = \frac{H_{\text{zlib}}(x)}{\mathcal{L}_{\theta}(x)}$$
 Additionally, casing sensitivity $\mathcal{L}_\theta(\text{lower}(x)) /
 \mathcal{L}_\theta(x)$ detects exact memorization of code symbols and licenses.
 
+### Direct Mechanistic Inspection via Logit Lens (Geva et al., 2021)
+Each column $\mathbf{v}_i^{(l)} = W_{\text{down}}^{(l)}[:, i]$ of an MLP down-
+projection matrix acts as a value vector written directly into the residual
+stream. Columns with the largest Euclidean norm $\Vert\mathbf{v}_i^{(l)}\Vert_2$
+in upper-middle layers ($l \in [16, 26]$) encode localized key-value memories.
+By projecting these value vectors through the final normalization and
+unembedding matrix:
+
+$$\mathbf{z}_i^{(l)} = W_U \cdot \text{RMSNorm}_{\text{final}}\left(\mathbf{v}_i^{(l)}\right)$$
+
+`unplow` extracts high-salience vocabulary clusters directly from static weights
+without running forward attention passes, feeding them as high-yield seeds.
+
 ---
 
 ## 3. Paradigm 2: Lossless Arithmetic Codec (Delétang et al., 2023)
@@ -56,21 +69,21 @@ In Paradigm 2, the LLM provides dynamic conditional probability intervals for a
 - At step $t$, with interval $[L, H]$ and span $S = H - L + 1$, the coder
   narrows the range to the sub-interval of the observed token and renormalizes.
 
-### Generative Manifold Decompression
-Because arithmetic coding establishes a measure-preserving bijection between
-bitstreams and model probabilities, passing an arbitrary byte payload (such as a
-SHA-256 hash or random seed) into the arithmetic decoder deterministically
-projects those bits into coherent text according to the model's manifold.
+### Bounded-Memory Sliding KV-Cache Window
+For sequences exceeding context horizon $W$, `slice_kv_cache` truncates the
+KV-cache to retain only the most recent $W/2$ tokens. Executed identically in
+encoder and decoder, integer CDF trajectories remain bit-identical while capping
+RAM to a deterministic constant.
 
----
+### Self-Verifying `.unp` Binary Container
+Framed with an 18-byte header (`UNPLOW`, version, flags, token count, window
+stride, SHA-256 digest prefix), enabling self-contained archive distribution
+with automatic cryptographic verification upon decompression.
 
-## 4. Engineering Nuances & Floating-Point Determinism
-
-- **FP32 vs FP16/BF16:** Floating-point matmul reductions across parallel CUDA
-  threads are non-associative. For exact arithmetic decoding roundtrip, `unplow`
-  runs logits evaluation in FP32 or deterministic quantized integer kernels.
-- **Sliding Context Window:** For sequences exceeding model context length $W$,
-  KV-caches are slid identically in encoder and decoder to maintain exact state
-  synchronization.
+### Domain-Adaptive Compression (Minimum Description Length)
+Specialized code models ($\theta_{\text{coder}}$) assign lower cross-entropy to
+AST syntax and indentation transitions. By matching the model prior to the
+payload domain, arithmetic interval narrowing achieves higher compression
+ratios ($<1.4$ bpb) without dictionary warmup penalties.
 
 <!-- end of file: unplow/docs/decompression_guide.md -->

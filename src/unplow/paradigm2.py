@@ -18,6 +18,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 
+from .container import (
+    UnpArchiveMetadata,
+    pack_unp_container,
+    slice_kv_cache,
+    unpack_unp_container,
+    verify_unp_checksum,
+)
 from .models import load_causal_lm
 
 logger = logging.getLogger("unplow.paradigm2")
@@ -97,7 +104,11 @@ class LLMArithmeticCodec:
         return cdf
 
     @torch.no_grad()
-    def compress(self, text: str) -> Tuple[bytes, int, CompressionStats]:
+    def compress(
+        self,
+        text: str,
+        max_ctx_len: Optional[int] = None,
+    ) -> Tuple[bytes, int, CompressionStats]:
         """Compress text into an arithmetic bitstream using the LLM distribution.
 
         Returns (compressed_bytes, num_tokens, stats).
@@ -122,7 +133,10 @@ class LLMArithmeticCodec:
         curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
         past_key_values = None
 
-        for token in token_ids:
+        for step, token in enumerate(token_ids):
+            if max_ctx_len and max_ctx_len >= 4 and step > 0 and step % (max_ctx_len // 2) == 0:
+                past_key_values = slice_kv_cache(past_key_values, keep_tokens=max_ctx_len // 2)
+
             outputs = self.model(
                 input_ids=curr_input,
                 past_key_values=past_key_values,
@@ -187,7 +201,12 @@ class LLMArithmeticCodec:
         return payload, num_tokens, stats
 
     @torch.no_grad()
-    def decompress(self, compressed_bytes: bytes, num_tokens: int) -> str:
+    def decompress(
+        self,
+        compressed_bytes: bytes,
+        num_tokens: int,
+        max_ctx_len: Optional[int] = None,
+    ) -> str:
         """Decompress an arithmetic bitstream back to exact original text.
 
         Also operates as a deterministic generative manifold decompressor when
@@ -218,7 +237,10 @@ class LLMArithmeticCodec:
         curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
         past_key_values = None
 
-        for _ in range(num_tokens):
+        for step in range(num_tokens):
+            if max_ctx_len and max_ctx_len >= 4 and step > 0 and step % (max_ctx_len // 2) == 0:
+                past_key_values = slice_kv_cache(past_key_values, keep_tokens=max_ctx_len // 2)
+
             outputs = self.model(
                 input_ids=curr_input,
                 past_key_values=past_key_values,
@@ -257,6 +279,38 @@ class LLMArithmeticCodec:
             curr_input = torch.tensor([[token]], device=self.device)
 
         return self.tokenizer.decode(decoded_tokens, clean_up_tokenization_spaces=False)
+
+    def compress_to_container(
+        self,
+        text: str,
+        max_ctx_len: int = 512,
+        verify_hash: bool = True,
+    ) -> Tuple[bytes, UnpArchiveMetadata, CompressionStats]:
+        """Compress text directly into a self-verifying .unp binary archive."""
+        payload, num_tokens, stats = self.compress(text, max_ctx_len=max_ctx_len)
+        container_bytes = pack_unp_container(
+            bitstream=payload,
+            num_tokens=num_tokens,
+            max_ctx_len=max_ctx_len,
+            plaintext=text,
+            verify_hash=verify_hash,
+        )
+        meta, _ = unpack_unp_container(container_bytes)
+        return container_bytes, meta, stats
+
+    def decompress_from_container(
+        self,
+        container_bytes: bytes,
+    ) -> Tuple[str, UnpArchiveMetadata, bool]:
+        """Decompress a .unp binary archive and verify cryptographic integrity."""
+        meta, bitstream = unpack_unp_container(container_bytes)
+        text = self.decompress(
+            bitstream,
+            num_tokens=meta.num_tokens,
+            max_ctx_len=meta.max_ctx_len if meta.max_ctx_len > 0 else None,
+        )
+        is_valid = verify_unp_checksum(meta, text)
+        return text, meta, is_valid
 
     def decompress_seed(
         self,

@@ -7,14 +7,33 @@ Treats large language models as compressed data archives, providing:
 2. Lossless Autoregressive Arithmetic Compression & Decompression Engine
    (fixed-point integer CDF interval partitioning over next-token probabilities).
 3. Generative Manifold Decompression (projecting arbitrary seeds/hashes into text).
-4. Atomic file-backed queue scheduling and tamper-evident forensic ledgers.
+4. Direct Mechanistic Weight Inspection via the Logit Lens (Geva et al., 2021).
+5. Self-verifying framed .unp binary container format with bounded KV-cache horizon.
+6. Atomic file-backed queue scheduling and tamper-evident forensic ledgers.
 """
 
+from .container import (
+    FLAG_LOSSLESS_VERIFIED,
+    FLAG_MANIFOLD_SEED,
+    UNP_HEADER_FORMAT,
+    UNP_HEADER_SIZE,
+    UNP_MAGIC,
+    UNP_VERSION,
+    UnpArchiveMetadata,
+    pack_unp_container,
+    slice_kv_cache,
+    unpack_unp_container,
+    verify_unp_checksum,
+)
 from .forensics import (
     ForensicAuditLogger,
     compute_file_sha256,
     compute_str_sha256,
     get_telemetry_snapshot,
+)
+from .mechanistic import (
+    MechanisticWeightInspector,
+    NeuronMemoryTrace,
 )
 from .models import (
     MockByteTokenizer,
@@ -53,7 +72,7 @@ from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -63,27 +82,40 @@ __all__ = [
     "CompressionStats",
     "DecompressionWorker",
     "ExtractedRecord",
+    "FLAG_LOSSLESS_VERIFIED",
+    "FLAG_MANIFOLD_SEED",
     "FileTaskQueue",
     "ForensicAuditLogger",
     "GitDestructiveOperationError",
     "GitSafetyGuard",
     "LLMArithmeticCodec",
     "MAX_VAL",
+    "MechanisticWeightInspector",
     "MockByteTokenizer",
     "MockCausalLM",
+    "NeuronMemoryTrace",
     "PRECISION_BITS",
     "TOTAL_FREQ",
     "Task",
     "TaskStatus",
+    "UNP_HEADER_FORMAT",
+    "UNP_HEADER_SIZE",
+    "UNP_MAGIC",
+    "UNP_VERSION",
+    "UnpArchiveMetadata",
     "WeightDecompressor",
     "audit_system_models",
     "compute_file_sha256",
     "compute_str_sha256",
     "get_telemetry_snapshot",
     "load_causal_lm",
+    "pack_unp_container",
     "resolve_model_path",
+    "slice_kv_cache",
+    "unpack_unp_container",
     "validate_additive_artifact_path",
     "validate_local_only_url",
+    "verify_unp_checksum",
 ]
 
 # end of file: unplow/src/unplow/__init__.py
