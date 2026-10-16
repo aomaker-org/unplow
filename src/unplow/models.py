@@ -164,14 +164,36 @@ class MockModelOutput:
         self.past_key_values = past_key_values
 
 
+class MockMLP(nn.Module):
+    def __init__(self, hidden_dim: int = 32, ffn_dim: int = 64):
+        super().__init__()
+        self.down_proj = nn.Linear(ffn_dim, hidden_dim)
+        nn.init.orthogonal_(self.down_proj.weight)
+
+
+class MockTransformerLayer(nn.Module):
+    def __init__(self, hidden_dim: int = 32, ffn_dim: int = 64):
+        super().__init__()
+        self.mlp = MockMLP(hidden_dim, ffn_dim)
+
+
+class MockModelBody(nn.Module):
+    def __init__(self, hidden_dim: int = 32, num_layers: int = 4):
+        super().__init__()
+        self.layers = nn.ModuleList([MockTransformerLayer(hidden_dim) for _ in range(num_layers)])
+        self.norm = nn.LayerNorm(hidden_dim)
+
+
 class MockCausalLM(nn.Module):
-    """Deterministic causal language model for unit tests."""
+    """Deterministic causal language model with mock transformer layers for unit tests."""
 
     def __init__(self, vocab_size: int = 260, hidden_dim: int = 32):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed = nn.Embedding(vocab_size, hidden_dim)
         self.head = nn.Linear(hidden_dim, vocab_size)
+        self.lm_head = self.head
+        self.model = MockModelBody(hidden_dim=hidden_dim, num_layers=4)
         # Deterministic weights
         nn.init.orthogonal_(self.embed.weight)
         nn.init.orthogonal_(self.head.weight)
@@ -184,6 +206,7 @@ class MockCausalLM(nn.Module):
         use_cache: bool = True,
     ) -> MockModelOutput:
         x = self.embed(input_ids)
+        x = self.model.norm(x)
         logits = self.head(x)
         return MockModelOutput(logits=logits, past_key_values=past_key_values)
 

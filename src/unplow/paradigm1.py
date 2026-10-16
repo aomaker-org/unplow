@@ -107,6 +107,7 @@ class WeightDecompressor:
         temp_lock: float = 0.25,
         top_k: int = 60,
         seed_prefixes: Optional[List[str]] = None,
+        use_mechanistic_seeds: bool = False,
     ) -> List[ExtractedRecord]:
         """Probe LLM parameter space via temperature-decayed exploration.
 
@@ -114,12 +115,23 @@ class WeightDecompressor:
         anneals into low-temperature greedy extraction to follow memorized basins.
         """
         if not seed_prefixes:
-            seed_prefixes = [
-                "Copyright (c) ",
-                "def ",
-                "The following is a verbatim ",
-                "According to the official ",
-            ]
+            if use_mechanistic_seeds:
+                from .mechanistic import MechanisticWeightInspector
+                inspector = MechanisticWeightInspector(model=self.model, tokenizer=self.tokenizer)
+                harvested = inspector.harvest_seed_prefixes(num_seeds=max(num_samples, 4))
+                seed_prefixes = harvested if harvested else [
+                    "Copyright (c) ",
+                    "def ",
+                    "The following is a verbatim ",
+                    "According to the official ",
+                ]
+            else:
+                seed_prefixes = [
+                    "Copyright (c) ",
+                    "def ",
+                    "The following is a verbatim ",
+                    "According to the official ",
+                ]
 
         records: List[ExtractedRecord] = []
 
