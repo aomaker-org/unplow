@@ -12,6 +12,20 @@ Treats large language models as compressed data archives, providing:
 6. Atomic file-backed queue scheduling and tamper-evident forensic ledgers.
 """
 
+from .circuits import (
+    AssociativeCircuitTrace,
+    SwiGLUCircuitDecompressor,
+)
+from .conditioning import (
+    DOMAIN_NAME_TO_ID,
+    DOMAIN_PRIORS,
+    logits_to_integer_cdf_fast,
+    pack_flags_with_domain,
+    prewarm_kv_cache_for_domain,
+    resolve_domain_id,
+    select_optimal_domain_mdl,
+    unpack_flags_with_domain,
+)
 from .container import (
     FLAG_LOSSLESS_VERIFIED,
     FLAG_MANIFOLD_SEED,
@@ -72,14 +86,17 @@ from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "AdditiveFileHandler",
     "AirGapViolationError",
+    "AssociativeCircuitTrace",
     "CANONICAL_ROOT_FILES",
     "CANONICAL_SOURCE_DIRS",
     "CompressionStats",
+    "DOMAIN_NAME_TO_ID",
+    "DOMAIN_PRIORS",
     "DecompressionWorker",
     "ExtractedRecord",
     "FLAG_LOSSLESS_VERIFIED",
@@ -95,6 +112,7 @@ __all__ = [
     "MockCausalLM",
     "NeuronMemoryTrace",
     "PRECISION_BITS",
+    "SwiGLUCircuitDecompressor",
     "TOTAL_FREQ",
     "Task",
     "TaskStatus",
@@ -109,9 +127,15 @@ __all__ = [
     "compute_str_sha256",
     "get_telemetry_snapshot",
     "load_causal_lm",
+    "logits_to_integer_cdf_fast",
+    "pack_flags_with_domain",
     "pack_unp_container",
+    "prewarm_kv_cache_for_domain",
+    "resolve_domain_id",
     "resolve_model_path",
+    "select_optimal_domain_mdl",
     "slice_kv_cache",
+    "unpack_flags_with_domain",
     "unpack_unp_container",
     "validate_additive_artifact_path",
     "validate_local_only_url",

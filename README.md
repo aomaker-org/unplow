@@ -50,9 +50,17 @@ payload, this problem splits into two distinct mathematical paradigms:
   - Generative manifold decompression: maps arbitrary hashes (SHA-256) or seeds
     deterministically into coherent text across the LLM manifold.
 - **Local Model Substrate & Air-Gap Mandate**:
-  - Auto-resolves locally cached HuggingFace snapshots (`Qwen2.5-1.5B-Instruct`),
-    local `.gguf` binaries, and Ollama endpoints without network dependency.
+  - Auto-resolves locally cached HuggingFace snapshots
+    (`Qwen2.5-1.5B-Instruct`), local `.gguf` binaries, and Ollama endpoints.
   - Full compliance with Directive 18 (100% offline, zero cloud AI API burn).
+- **Coupled SwiGLU Circuits & Anisotropic Logit Lens (Phase 3)**:
+  - Direct static extraction of coupled trigger-emitter rules
+    `(Trigger Key -> Target Value)` from SwiGLU gate/up/down projections.
+  - Anisotropic mean-centering on late-layer value vectors.
+- **Zero-Bit Domain Conditioning & MDL Auto-Router (Phase 3)**:
+  - Packs 4-bit domain prior into `.unp` header flags upper nibble.
+  - Pre-warms KV-cache to eliminate token-0 cold-start entropy.
+  - Minimum Description Length auto-routing across prose, code, and telemetry.
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -77,25 +85,46 @@ uv pip install -e ".[dev]"
 uv run unplow models
 ```
 
-### 3. Probe Static Weight Basins (Paradigm 1)
+### 3. Extract Coupled SwiGLU Circuits (Phase 3)
+
+```bash
+uv run unplow circuits --layer 16 --candidates 10 --seeds 4
+```
+
+### 4. Probe Static Weight Basins (Paradigm 1)
 
 ```bash
 uv run unplow probe --samples 4 --seq-len 64
 ```
 
-### 4. Lossless Arithmetic Compression (Paradigm 2)
+### 5. Pack Self-Verifying .unp Archive with MDL Auto-Domain (Phase 3)
 
 ```bash
-uv run unplow compress "Information theory connects sequence modeling with data compression." -o output.bin
+uv run unplow archive \
+  --text "Lossless container test." --auto-domain -o test.unp
 ```
 
-### 5. Exact Lossless Decompression (Paradigm 2)
+### 6. Unpack and Verify .unp Container
+
+```bash
+uv run unplow unarchive test.unp
+```
+
+### 7. Lossless Arithmetic Compression (Paradigm 2)
+
+```bash
+uv run unplow compress \
+  "Information theory connects sequence modeling with data compression." \
+  -o output.bin
+```
+
+### 8. Exact Lossless Decompression (Paradigm 2)
 
 ```bash
 uv run unplow decompress output.bin --tokens 9
 ```
 
-### 6. Generative Manifold Decompression from Seed
+### 9. Generative Manifold Decompression from Seed
 
 ```bash
 uv run unplow manifold --seed "unplow_latent_manifold" --tokens 30

@@ -107,4 +107,38 @@ file locking (`fcntl.flock(fd, LOCK_EX | LOCK_NB)`):
   `logs/forensics/audit_journal.jsonl` with ISO-8601 UTC microsecond timestamps,
   SHA-256 digests, and VmRSS memory metrics.
 
+---
+
+## 6. Coupled SwiGLU Circuits & Anisotropic Logit Lens
+
+In Phase 3, `unplow` couples the input receptor geometry with output emission
+projections directly from static weight matrices without forward passes:
+
+1. **Anisotropic Mean Centering**: Late transformer layers exhibit
+   representation collapse around a shared non-zero mean (Ethayarajh, 2019;
+   Sun et al., 2024). Subtracting layer mean vector
+   $\bar{\mathbf{v}} = \frac{1}{d}\sum \mathbf{v}_j$ from `down_proj` weights
+   isolates distinct semantic circuits.
+2. **Selectivity Margin Scoring**: Evaluates $S_i = z_{(1)} - z_{(50)}$ to
+   filter out universal numeral amplifiers while retaining domain-specific
+   concepts.
+3. **SwiGLU Key Coupling**: Matches combined receptor keys
+   $\mathbf{k}_i = \text{normalize}(\mathbf{w}_{\text{gate}, i} +
+   \mathbf{w}_{\text{up}, i})$ against normalized token embeddings $W_E$,
+   synthesizing full associative rules `(Trigger Context -> Target Value)`.
+
+---
+
+## 7. Zero-Bit Domain Conditioning & Vectorized PyTorch CDF
+
+1. **Header Nibble Packing**: Bits 4..7 of the `.unp` header `flags` byte
+   store a 4-bit domain ID (`0..15`). Bit 0 retains lossless verification.
+2. **KV-Cache Pre-Warming**: Pre-warms `past_key_values` with a deterministic
+   domain preamble (prose, Python, C firmware, JSON) prior to token 0, slashing
+   cold-start entropy with zero extra header or bitstream bytes.
+3. **MDL Auto-Routing**: Rissanen (1978) Minimum Description Length selector
+   evaluates exact target cross-entropy across priors in a single batched pass.
+4. **Fast PyTorch CDF**: Vectorized int64 cumulative frequency quantization
+   eliminates per-token NumPy roundtrips on large vocabularies.
+
 <!-- end of file: unplow/docs/architecture.md -->

@@ -91,4 +91,48 @@ def test_worker_heartbeat(mock_worker):
     content = mock_worker.heartbeat_path.read_text(encoding="utf-8")
     assert '"status": "IDLE"' in content
 
+
+def test_worker_archive_and_unarchive_with_domain(mock_worker):
+    text = "Domain-conditioned queue test payload."
+    arch_task = mock_worker.queue.enqueue(
+        action="archive",
+        payload=text,
+        extra={"domain_id": 2, "max_ctx_len": 64},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    unp_file = mock_worker.work_products_dir / f"{arch_task.task_id}.unp"
+    assert unp_file.exists()
+    container_bytes = unp_file.read_bytes()
+    b64_container = base64.b64encode(container_bytes).decode("ascii")
+
+    # Unarchive
+    unarch_task = mock_worker.queue.enqueue(
+        action="unarchive",
+        payload=b64_container,
+    )
+    claimed2 = mock_worker.queue.claim_next_task()
+    assert claimed2 is not None
+    t2, p2 = claimed2
+    mock_worker.process_task(t2, p2)
+
+    assert mock_worker.queue.get_counts()["done"] == 2
+
+
+def test_worker_circuits_task(mock_worker):
+    task = mock_worker.queue.enqueue(
+        action="circuits",
+        extra={"candidates": 2, "top_tokens": 2, "layers": [1]},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    circuits_file = mock_worker.work_products_dir / f"{task.task_id}_circuits.json"
+    assert circuits_file.exists()
+
 # end of file: unplow/tests/test_worker.py

@@ -185,8 +185,11 @@ class DecompressionWorker:
             elif action in ("archive", "pack"):
                 text = task.payload or task.extra.get("text", "")
                 max_ctx = task.extra.get("max_ctx_len", 512)
+                domain_id = task.extra.get("domain_id", 0)
                 codec = self.get_p2_codec()
-                container_bytes, meta, stats = codec.compress_to_container(text, max_ctx_len=max_ctx, verify_hash=True)
+                container_bytes, meta, stats = codec.compress_to_container(
+                    text, max_ctx_len=max_ctx, verify_hash=True, domain_id=domain_id
+                )
                 b64_container = base64.b64encode(container_bytes).decode("ascii")
 
                 output_dict = {
@@ -201,6 +204,37 @@ class DecompressionWorker:
                 unp_path = self.work_products_dir / f"{task.task_id}.unp"
                 self.file_handler.write_additive_bytes(unp_path, container_bytes)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=codec.model_path)
+                self.processed_count += 1
+
+            elif action in ("circuits", "circuit", "swiglu"):
+                from .circuits import SwiGLUCircuitDecompressor
+                decompressor = SwiGLUCircuitDecompressor(model_name=self.model_name)
+                candidates = task.extra.get("candidates", 24)
+                top_tokens = task.extra.get("top_tokens", 5)
+                layers = task.extra.get("layers", None)
+                suppress_num = task.extra.get("suppress_numerals", True)
+                circuits = decompressor.extract_coupled_circuits(
+                    layer_indices=layers,
+                    candidates_per_layer=candidates,
+                    top_k_tokens=top_tokens,
+                    suppress_numerals=suppress_num,
+                )
+                seeds = decompressor.harvest_associative_seeds(
+                    max_seeds=task.extra.get("seeds", 12),
+                    layer_indices=layers,
+                    suppress_numerals=suppress_num,
+                )
+                output_dict = {
+                    "action": "circuits",
+                    "model": decompressor.model_path,
+                    "num_circuits": len(circuits),
+                    "traces": [c.to_dict() for c in circuits],
+                    "harvested_seeds": seeds,
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_circuits.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=decompressor.model_path)
                 self.processed_count += 1
 
             elif action in ("unarchive", "unpack"):

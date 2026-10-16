@@ -146,7 +146,12 @@ class MockByteTokenizer:
             return [self.bos_token_id] + tokens + [self.eos_token_id]
         return tokens
 
-    def decode(self, tokens: List[int], clean_up_tokenization_spaces: bool = False, skip_special_tokens: bool = False) -> str:
+    def decode(
+        self,
+        tokens: List[int],
+        clean_up_tokenization_spaces: bool = False,
+        skip_special_tokens: bool = False,
+    ) -> str:
         clean = []
         for t in tokens:
             if skip_special_tokens and t in (self.bos_token_id, self.eos_token_id):
@@ -167,7 +172,11 @@ class MockModelOutput:
 class MockMLP(nn.Module):
     def __init__(self, hidden_dim: int = 32, ffn_dim: int = 64):
         super().__init__()
-        self.down_proj = nn.Linear(ffn_dim, hidden_dim)
+        self.gate_proj = nn.Linear(hidden_dim, ffn_dim, bias=False)
+        self.up_proj = nn.Linear(hidden_dim, ffn_dim, bias=False)
+        self.down_proj = nn.Linear(ffn_dim, hidden_dim, bias=False)
+        nn.init.orthogonal_(self.gate_proj.weight)
+        nn.init.orthogonal_(self.up_proj.weight)
         nn.init.orthogonal_(self.down_proj.weight)
 
 
@@ -178,10 +187,12 @@ class MockTransformerLayer(nn.Module):
 
 
 class MockModelBody(nn.Module):
-    def __init__(self, hidden_dim: int = 32, num_layers: int = 4):
+    def __init__(self, vocab_size: int = 260, hidden_dim: int = 32, num_layers: int = 4):
         super().__init__()
+        self.embed_tokens = nn.Embedding(vocab_size, hidden_dim)
         self.layers = nn.ModuleList([MockTransformerLayer(hidden_dim) for _ in range(num_layers)])
         self.norm = nn.LayerNorm(hidden_dim)
+        nn.init.orthogonal_(self.embed_tokens.weight)
 
 
 class MockCausalLM(nn.Module):
@@ -190,12 +201,10 @@ class MockCausalLM(nn.Module):
     def __init__(self, vocab_size: int = 260, hidden_dim: int = 32):
         super().__init__()
         self.vocab_size = vocab_size
-        self.embed = nn.Embedding(vocab_size, hidden_dim)
-        self.head = nn.Linear(hidden_dim, vocab_size)
+        self.model = MockModelBody(vocab_size=vocab_size, hidden_dim=hidden_dim, num_layers=4)
+        self.embed = self.model.embed_tokens
+        self.head = nn.Linear(hidden_dim, vocab_size, bias=False)
         self.lm_head = self.head
-        self.model = MockModelBody(hidden_dim=hidden_dim, num_layers=4)
-        # Deterministic weights
-        nn.init.orthogonal_(self.embed.weight)
         nn.init.orthogonal_(self.head.weight)
         self.eval()
 
@@ -208,6 +217,22 @@ class MockCausalLM(nn.Module):
         x = self.embed(input_ids)
         x = self.model.norm(x)
         logits = self.head(x)
-        return MockModelOutput(logits=logits, past_key_values=past_key_values)
+        new_past = past_key_values
+        if use_cache:
+            seq_len = input_ids.shape[1]
+            if past_key_values is None:
+                new_past = tuple(
+                    (torch.zeros(1, 2, seq_len, 8), torch.zeros(1, 2, seq_len, 8))
+                    for _ in range(len(self.model.layers))
+                )
+            elif isinstance(past_key_values, tuple):
+                new_past = tuple(
+                    (
+                        torch.cat([k, torch.zeros(1, 2, seq_len, 8)], dim=2),
+                        torch.cat([v, torch.zeros(1, 2, seq_len, 8)], dim=2),
+                    )
+                    for k, v in past_key_values
+                )
+        return MockModelOutput(logits=logits, past_key_values=new_past)
 
 # end of file: unplow/src/unplow/models.py

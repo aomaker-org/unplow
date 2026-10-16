@@ -15,6 +15,7 @@ help:
 	@echo "  make status     - Check queue status and backend availability"
 	@echo "  make models     - Audit local LLMs available for decompression"
 	@echo "  make inspect    - Direct mechanistic MLP weight inspection via Logit Lens"
+	@echo "  make circuits   - Extract coupled SwiGLU circuits with mean-centered logit lens"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -52,6 +53,9 @@ models:
 
 inspect:
 	uv run unplow inspect --harvest
+
+circuits:
+	uv run unplow circuits --harvest --seeds 8
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32

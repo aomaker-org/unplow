@@ -22,7 +22,7 @@ try:
 except ImportError:
     DynamicCache = None
 
-# .unp Header Layout: 6s (magic) + B (version) + B (flags) + I (num_tokens) + H (max_ctx) + 4s (sha256_prefix) = 18 bytes
+# .unp Header Layout: 6s (magic) + B (ver) + B (flags) + I (tokens) + H (max_ctx) + 4s (sha_prefix) = 18 bytes
 UNP_HEADER_FORMAT = ">6sBBIH4s"
 UNP_HEADER_SIZE = struct.calcsize(UNP_HEADER_FORMAT)
 UNP_MAGIC = b"UNPLOW"
@@ -47,8 +47,15 @@ class UnpArchiveMetadata:
     def is_verified_lossless(self) -> bool:
         return bool(self.flags & FLAG_LOSSLESS_VERIFIED)
 
+    @property
+    def domain_id(self) -> int:
+        """4-bit domain conditioning prior ID (0..15) stored in upper nibble."""
+        return (self.flags >> 4) & 0x0F
+
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["domain_id"] = self.domain_id
+        return d
 
 
 def slice_kv_cache(past_key_values: Any, keep_tokens: int) -> Any:
@@ -89,14 +96,17 @@ def pack_unp_container(
     max_ctx_len: int = 512,
     plaintext: Optional[str] = None,
     verify_hash: bool = True,
+    domain_id: int = 0,
 ) -> bytes:
     """Pack raw arithmetic bitstream into an 18-byte framed .unp container."""
     if plaintext is not None and verify_hash:
         digest_prefix = hashlib.sha256(plaintext.encode("utf-8")).digest()[:4]
-        flags = FLAG_LOSSLESS_VERIFIED
+        low_nibble = FLAG_LOSSLESS_VERIFIED
     else:
         digest_prefix = b"\x00\x00\x00\x00"
-        flags = FLAG_MANIFOLD_SEED
+        low_nibble = FLAG_MANIFOLD_SEED
+
+    flags = ((domain_id & 0x0F) << 4) | (low_nibble & 0x0F)
 
     header = struct.pack(
         UNP_HEADER_FORMAT,
@@ -114,7 +124,7 @@ def unpack_unp_container(container_bytes: bytes) -> Tuple[UnpArchiveMetadata, by
     """Unpack and validate the 18-byte .unp header, returning metadata and bitstream."""
     if len(container_bytes) < UNP_HEADER_SIZE:
         raise ValueError(
-            f"Invalid .unp archive: length {len(container_bytes)} is smaller than header size ({UNP_HEADER_SIZE} bytes)."
+            f"Invalid .unp archive: size {len(container_bytes)} smaller than header size ({UNP_HEADER_SIZE} bytes)."
         )
 
     magic, version, flags, num_tokens, max_ctx_len, digest_prefix = struct.unpack(
