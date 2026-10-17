@@ -132,4 +132,64 @@ def test_incremental_trainer_large_model_isolation():
     assert model.layers[-1].weight.requires_grad is True
 
 
+def test_incremental_trainer_checkpoint_persistence_and_status(tmp_path):
+    manifest_file = tmp_path / "manifest.toml"
+    p_str = str(tmp_path).replace("\\", "/")
+    manifest_file.write_text(
+        f"""
+[manifest]
+version = "1.0.0"
+target_free_percentage = 15.0
+rclone_destination = "gdrive:transfer/test/"
+
+[offload_targets.caches]
+path = "{p_str}"
+items = []
+
+[offload_targets.checkpoints]
+path = "{p_str}"
+items = []
+
+[offload_targets.archives]
+path = "{p_str}"
+pattern = "*.unp"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    tokenizer, model, _ = load_causal_lm("mock")
+    cp_dir = tmp_path / "checkpoints"
+    target_dir = tmp_path / "targets"
+    trainer = IncrementalTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        min_free_pct=0.01,
+        manifest_path=str(manifest_file),
+        base_checkpoint_dir=str(cp_dir),
+        base_target_dir=str(target_dir),
+    )
+
+    corpus = ["def test_func():\n    return 42\n"]
+    success = trainer.train_domain_incrementally(
+        domain_name="python",
+        corpus_texts=corpus,
+        total_epochs=1,
+        steps_per_epoch=1,
+    )
+    assert success is True
+
+    # Validate that adapter weights and config were saved
+    expected_pt = cp_dir / "till-python-lora" / "adapter_model.pt"
+    expected_cfg = cp_dir / "till-python-lora" / "adapter_config.json"
+    assert expected_pt.exists()
+    assert expected_cfg.exists()
+    assert expected_pt.stat().st_size > 0
+
+    # Validate that print_status_summary runs cleanly
+    trainer.print_status_summary(iteration=1)
+    assert "python" in trainer.domain_reports
+    assert trainer.domain_reports["python"]["trainable_params"] > 0
+
+
 # end of file: unplow/tests/test_incremental_pipeline.py
+
