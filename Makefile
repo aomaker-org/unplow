@@ -9,7 +9,7 @@ PYTEST := uv run pytest
 .PHONY: profile probe compress decompress archive unarchive manifold benchmark
 .PHONY: gguf-inspect subspace-steer task-vector audit replow eval bundle
 .PHONY: till-init till-train till-train-c till-train-cpp till-train-rust till-train-gencode till-train-all
-.PHONY: till-guard-offload full-pipeline daemon view watch sync clean
+.PHONY: till-guard-offload full-pipeline incremental-pipeline daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -34,6 +34,7 @@ help:
 	@echo "  make till-train-all - Train and archive all 5 specialized till-* domains"
 	@echo "  make till-offload - Enforce disk quota and offload candidate artifacts"
 	@echo "  make full-pipeline - Run end-to-end multi-domain extraction and training pipeline"
+	@echo "  make incremental-pipeline - Run incremental training loop with telemetry auditing"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -127,6 +128,9 @@ till-guard-offload till-offload:
 
 full-pipeline:
 	uv run python src/unplow/full_pipeline.py
+
+incremental-pipeline:
+	uv run python src/unplow/incremental_pipeline.py
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
