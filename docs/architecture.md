@@ -273,4 +273,27 @@ high-density `.unp` container archiving:
    Switching mixture coder (`FLAG_BAYES_MIXER = 0x08`), maximizing compression
    density across structural code patterns.
 
+---
+
+## 13. Replow Evaluation Harness: Functional Correctness & Perplexity Tracking
+
+Phase 9 introduces the evaluation harness (`src/unplow/eval.py`), combining
+sandboxed execution against unit test assertions with per-token perplexity
+and cross-entropy tracking before and after distillation:
+
+1. **Sandboxed Functional Correctness (`FunctionalCorrectnessRunner`)**:
+   Injects refactored Python code and test assertions into an isolated
+   multiprocessing namespace, enforcing execution timeouts and capturing
+   runtime exceptions or assertion failures.
+2. **Perplexity & Surprisal Shift Tracking (`PerplexityTracker`)**:
+   Measures cross-entropy loss ($\mathcal{L}_{\theta}$) and perplexity
+   ($\mathcal{P} = 2^{\mathcal{L}_{\theta}}$) across validation corpora,
+   tracking empirical compression and predictability shifts
+   ($\Delta \mathcal{L}_{\theta}$) resulting from local gradient distillation.
+3. **Container-Direct Evaluation**:
+   Accepts both raw `.py` scripts and `.unp` binary archives directly,
+   losslessly decompressing containers in memory before dispatching test
+   assertions and corpus loss evaluation.
+
 <!-- end of file: unplow/docs/architecture.md -->
+

@@ -258,4 +258,24 @@ def test_worker_replow_task(mock_worker):
     assert replow_unp.exists()
 
 
+def test_worker_eval_task(mock_worker, tmp_path):
+    code_file = tmp_path / "solution.py"
+    code_file.write_text("def mul(a, b): return a * b\n", encoding="utf-8")
+    test_file = tmp_path / "tests.py"
+    test_file.write_text("assert mul(2, 3) == 6\n", encoding="utf-8")
+
+    task = mock_worker.queue.enqueue(
+        action="eval",
+        payload=str(code_file),
+        extra={"test_suite": str(test_file)},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    eval_json = mock_worker.work_products_dir / f"{task.task_id}_eval.json"
+    assert eval_json.exists()
+
+
 # end of file: unplow/tests/test_worker.py

@@ -30,10 +30,10 @@ from typing import Optional
 from .circuits import SwiGLUCircuitDecompressor
 from .conditioning import DOMAIN_PRIORS
 from .container import FLAG_BAYES_MIXER, unpack_unp_container
-from .ctw_coder import BayesianCTSMixerCDF
+from .eval import evaluate_artifact, format_summary_table
 from .forensics import ForensicAuditLogger, get_telemetry_snapshot
 from .mechanistic import MechanisticWeightInspector
-from .models import audit_system_models, resolve_model_path
+from .models import audit_system_models, load_causal_lm, resolve_model_path
 from .paradigm1 import WeightDecompressor
 from .paradigm2 import LLMArithmeticCodec
 from .queue import FileTaskQueue
@@ -345,6 +345,20 @@ def main() -> None:
     p_replow.add_argument("--stage-dataset", default=None, help="Optional JSONL path to stage training dataset")
     p_replow.add_argument("--json", action="store_true", help="Output artifact details as JSON")
 
+    # Command: eval (Phase 9 Replow Evaluation Harness)
+    p_eval = subparsers.add_parser(
+        "eval",
+        aliases=["replow-eval"],
+        help="Run sandboxed functional correctness tests and perplexity shift tracking",
+    )
+    p_eval.add_argument("--artifact", required=True, help="Path to refactored .unp container or .py script")
+    p_eval.add_argument("--test-suite", default=None, help="Python file containing test assertions or functions")
+    p_eval.add_argument("--corpus", default=None, help="Optional text file or string for perplexity evaluation")
+    p_eval.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_eval.add_argument("--timeout", type=float, default=3.0, help="Per-test timeout in seconds (default: 3.0)")
+    p_eval.add_argument("-o", "--output", help="Output JSON path for evaluation report")
+    p_eval.add_argument("--json", action="store_true", help="Output evaluation report as JSON")
+
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
     p_unarch.add_argument("archive_file", help="Path to .unp archive file")
@@ -378,7 +392,7 @@ def main() -> None:
         choices=[
             "probe", "compress", "decompress", "manifold", "archive", "unarchive",
             "circuits", "steer", "profile", "surprisal", "audit", "layer-audit",
-            "replow", "replow_pipeline",
+            "replow", "replow_pipeline", "eval", "replow_eval",
         ],
         help="Task action",
     )
@@ -551,7 +565,6 @@ def main() -> None:
 
     elif args.command in ("profile", "surprisal"):
         from .cache_coder import profile_sequence_surprisal
-        from .models import load_causal_lm
         text = getattr(args, "opt_text", None) or args.text
         if args.file:
             text = Path(args.file).read_text(encoding="utf-8")
@@ -597,7 +610,6 @@ def main() -> None:
 
     elif args.command in ("gguf-inspect", "gguf"):
         from .gguf_inspector import GGUFBinaryInspector
-        from .models import load_causal_lm
         import torch
 
         print(f"[*] Parsing GGUF binary container: {args.path}...")
@@ -644,7 +656,6 @@ def main() -> None:
             print(f"\n[+] Exported report to {out_p}")
 
     elif args.command in ("subspace-steer", "subspace"):
-        from .models import load_causal_lm
         from .subspace_coder import SVDSubspaceSteeringEngine
         import torch
 
@@ -688,7 +699,6 @@ def main() -> None:
             print(f"\n[+] Exported subspace steering record to {out_p}")
 
     elif args.command in ("task-vector", "tv", "taskvector"):
-        from .models import load_causal_lm
         from .task_vectors import CrossSubstrateTaskVectorEngine
         import torch
 
@@ -751,7 +761,6 @@ def main() -> None:
 
     elif args.command in ("audit", "layer-audit", "inspect-layers"):
         from .auditor import ModelInternalAuditor
-        from .models import load_causal_lm
 
         is_json = getattr(args, "json", False)
         if not is_json:
@@ -786,7 +795,6 @@ def main() -> None:
             print(f"\n[+] Exported layer audit report to {out_p}")
 
     elif args.command == "replow":
-        from .models import load_causal_lm
         from .replow import ReplowEngine
 
         raw_code = args.raw
@@ -839,6 +847,51 @@ def main() -> None:
                 print(f"Distillation Loss : {loss:.4f}")
             print("\n--- Refactored Code ---")
             print(artifact.refactored_text)
+
+    elif args.command in ("eval", "replow-eval"):
+        art_path = Path(args.artifact)
+        if not art_path.exists():
+            print(f"[-] Error: Artifact '{args.artifact}' not found.", file=sys.stderr)
+            sys.exit(1)
+
+        is_json = getattr(args, "json", False)
+        model, tokenizer = None, None
+
+        corpus_texts = None
+        if args.corpus:
+            cp = Path(args.corpus)
+            if cp.exists():
+                corpus_texts = [
+                    line.strip() for line in cp.read_text(encoding="utf-8").splitlines() if line.strip()
+                ]
+            else:
+                corpus_texts = [args.corpus]
+
+        if art_path.suffix.lower() == ".unp" or corpus_texts:
+            if not is_json:
+                print(f"[*] Loading model substrate '{args.model}' for evaluation...")
+            tokenizer, model, _ = load_causal_lm(model_identifier=args.model)
+
+        summary = evaluate_artifact(
+            artifact_path=str(art_path),
+            test_suite_path=args.test_suite,
+            corpus_texts=corpus_texts,
+            model=model,
+            tokenizer=tokenizer,
+            timeout_sec=args.timeout,
+        )
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_text(json.dumps(summary.to_dict(), indent=2), encoding="utf-8")
+            if not is_json:
+                print(f"[+] Evaluation report saved to {out_p}")
+
+        if is_json:
+            print(json.dumps(summary.to_dict(), indent=2))
+        else:
+            print(format_summary_table(summary))
 
     elif args.command in ("archive", "pack"):
         text = args.text
