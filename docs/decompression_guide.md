@@ -327,6 +327,45 @@ summary = evaluate_artifact(
 print(format_summary_table(summary))
 ```
 
+---
+
+## 12. Phase 10: Hierarchical Workspace Bundling
+
+Phase 10 provides the Workspace Bundler (`src/unplow/bundler.py`) to package and
+unbundle multi-file directory trees into a single, high-density `.unp` container
+using 3-expert Bayesian CTS arithmetic compression (`FLAG_BAYES_MIXER = 0x08`).
+
+### A. CLI Commands
+```bash
+# Recursively bundle directory tree into a single .unp container
+unplow bundle src/ -o workspace/targets/src_bundle.unp
+
+# Unbundle archive back to target directory with SHA-256 verification
+unplow unbundle workspace/targets/src_bundle.unp -o workspace/restored/
+```
+
+### B. Python API Workflow
+```python
+from unplow.bundler import WorkspaceBundler
+
+bundler = WorkspaceBundler(model_name="auto")
+
+# Bundle directory tree
+report = bundler.bundle_directory(
+    source_dir="src/",
+    output_unp_path="workspace/targets/src_bundle.unp",
+)
+print(report.format_manifest_table())
+
+# Unbundle archive with strict cryptographic verification
+restore_report = bundler.unbundle_archive(
+    archive_path="workspace/targets/src_bundle.unp",
+    target_dir="workspace/restored/",
+)
+print(f"Restored {restore_report.total_files} files successfully.")
+```
+
 <!-- end of file: unplow/docs/decompression_guide.md -->
+
 
 

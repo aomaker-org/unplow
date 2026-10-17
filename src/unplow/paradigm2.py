@@ -89,6 +89,10 @@ class ContainerResult(bytes):
             pass
         return super().__iter__()
 
+    @property
+    def container_bytes(self) -> bytes:
+        return bytes(self)
+
 
 class DecompressResult(tuple):
     """Subclass of tuple unpacking cleanly to either (text, meta, is_valid) or (text, meta)."""
@@ -109,6 +113,18 @@ class DecompressResult(tuple):
         except Exception:
             pass
         return super().__iter__()
+
+    @property
+    def text(self) -> str:
+        return self[0]
+
+    @property
+    def meta(self) -> Any:
+        return self[1]
+
+    @property
+    def is_valid(self) -> bool:
+        return self[2]
 
 
 class LLMArithmeticCodec:

@@ -16,6 +16,11 @@ from .auditor import (
     LayerAuditReport,
     ModelInternalAuditor,
 )
+from .bundler import (
+    BundleManifestReport,
+    BundledFileEntry,
+    WorkspaceBundler,
+)
 from .cache_coder import (
     FLAG_CACHE_MIXTURE,
     OnlinePrefixCacheCDF,
@@ -148,7 +153,7 @@ from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -156,6 +161,8 @@ __all__ = [
     "AssociativeCircuitTrace",
     "BayesTrajectoryStep",
     "BayesianCTSMixerCDF",
+    "BundleManifestReport",
+    "BundledFileEntry",
     "CANONICAL_ROOT_FILES",
     "CANONICAL_SOURCE_DIRS",
     "CompressionStats",
@@ -224,6 +231,7 @@ __all__ = [
     "UNP_VERSION",
     "UnpArchiveMetadata",
     "WeightDecompressor",
+    "WorkspaceBundler",
     "audit_system_models",
     "build_synthetic_gguf_v3_bytes",
     "compute_file_sha256",

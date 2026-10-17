@@ -7,7 +7,7 @@ PYTEST := uv run pytest
 
 .PHONY: help venv install test test-cov lint status models inspect circuits steer
 .PHONY: profile probe compress decompress archive unarchive manifold benchmark
-.PHONY: gguf-inspect subspace-steer task-vector audit replow eval daemon view watch sync clean
+.PHONY: gguf-inspect subspace-steer task-vector audit replow eval bundle daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -26,6 +26,7 @@ help:
 	@echo "  make audit      - Layer-wise internal information & Logit Lens audit (Phase 7)"
 	@echo "  make replow     - Refactor code basins, stage datasets, and archive (Phase 8)"
 	@echo "  make eval       - Sandboxed functional tests & perplexity evaluation (Phase 9)"
+	@echo "  make bundle     - Hierarchical multi-file directory tree bundling (Phase 10)"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -90,6 +91,9 @@ replow:
 
 eval:
 	uv run unplow eval --artifact tests/data/fib_solution.py --test-suite tests/data/fib_tests.py
+
+bundle:
+	uv run unplow bundle tests/data/ -o workspace/targets/tests_data.unp
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32

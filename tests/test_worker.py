@@ -278,4 +278,23 @@ def test_worker_eval_task(mock_worker, tmp_path):
     assert eval_json.exists()
 
 
+def test_worker_bundle_task(mock_worker, tmp_path):
+    src_dir = tmp_path / "worker_bundle_src"
+    src_dir.mkdir()
+    (src_dir / "mod.py").write_text("VALUE = 123\n", encoding="utf-8")
+
+    task = mock_worker.queue.enqueue(
+        action="bundle",
+        payload=str(src_dir),
+        extra={"domain_id": 2},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    bundle_json = mock_worker.work_products_dir / f"{task.task_id}_bundle.json"
+    assert bundle_json.exists()
+
+
 # end of file: unplow/tests/test_worker.py

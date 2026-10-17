@@ -27,6 +27,7 @@ import sys
 import time
 from typing import Optional
 
+from .bundler import WorkspaceBundler
 from .circuits import SwiGLUCircuitDecompressor
 from .conditioning import DOMAIN_PRIORS
 from .container import FLAG_BAYES_MIXER, unpack_unp_container
@@ -359,6 +360,25 @@ def main() -> None:
     p_eval.add_argument("-o", "--output", help="Output JSON path for evaluation report")
     p_eval.add_argument("--json", action="store_true", help="Output evaluation report as JSON")
 
+    # Command: bundle (Phase 10 Hierarchical Workspace Bundling)
+    p_bundle = subparsers.add_parser(
+        "bundle", help="Bundle directory tree into hierarchical .unp archive"
+    )
+    p_bundle.add_argument("source", help="Source directory path to bundle")
+    p_bundle.add_argument("-o", "--output", required=True, help="Output .unp archive path")
+    p_bundle.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_bundle.add_argument("--domain", type=int, default=2, help="Domain prior ID (default: 2 for python_code)")
+    p_bundle.add_argument("--json", action="store_true", help="Output bundle manifest as JSON")
+
+    # Command: unbundle (Phase 10 Hierarchical Workspace Unbundling)
+    p_unbundle = subparsers.add_parser(
+        "unbundle", help="Unpack hierarchical .unp archive into directory tree"
+    )
+    p_unbundle.add_argument("archive", help="Input .unp archive path")
+    p_unbundle.add_argument("-o", "--output", required=True, help="Target restore directory")
+    p_unbundle.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_unbundle.add_argument("--json", action="store_true", help="Output unbundle manifest as JSON")
+
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
     p_unarch.add_argument("archive_file", help="Path to .unp archive file")
@@ -392,7 +412,7 @@ def main() -> None:
         choices=[
             "probe", "compress", "decompress", "manifold", "archive", "unarchive",
             "circuits", "steer", "profile", "surprisal", "audit", "layer-audit",
-            "replow", "replow_pipeline", "eval", "replow_eval",
+            "replow", "replow_pipeline", "eval", "replow_eval", "bundle", "unbundle",
         ],
         help="Task action",
     )
@@ -892,6 +912,60 @@ def main() -> None:
             print(json.dumps(summary.to_dict(), indent=2))
         else:
             print(format_summary_table(summary))
+
+    elif args.command == "bundle":
+        src_path = Path(args.source)
+        if not src_path.exists() or not src_path.is_dir():
+            print(
+                f"[-] Error: Source directory '{args.source}' not found or not a directory.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        is_json = getattr(args, "json", False)
+        if not is_json:
+            print(f"[*] Initializing WorkspaceBundler with model: {args.model}...")
+
+        tokenizer, model = None, None
+        if args.model != "mock":
+            tokenizer, model, _ = load_causal_lm(model_identifier=args.model)
+
+        bundler = WorkspaceBundler(model=model, tokenizer=tokenizer, model_name=args.model)
+        report = bundler.bundle_directory(
+            source_dir=src_path,
+            output_unp_path=args.output,
+            domain_id=args.domain,
+        )
+
+        if is_json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(report.format_manifest_table())
+
+    elif args.command == "unbundle":
+        arc_path = Path(args.archive)
+        if not arc_path.exists():
+            print(f"[-] Error: Archive '{args.archive}' not found.", file=sys.stderr)
+            sys.exit(1)
+
+        is_json = getattr(args, "json", False)
+        if not is_json:
+            print(f"[*] Initializing WorkspaceBundler for unbundle with model: {args.model}...")
+
+        tokenizer, model = None, None
+        if args.model != "mock":
+            tokenizer, model, _ = load_causal_lm(model_identifier=args.model)
+
+        bundler = WorkspaceBundler(model=model, tokenizer=tokenizer, model_name=args.model)
+        report = bundler.unbundle_archive(
+            archive_path=arc_path,
+            target_dir=args.output,
+        )
+
+        if is_json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(report.format_manifest_table())
 
     elif args.command in ("archive", "pack"):
         text = args.text

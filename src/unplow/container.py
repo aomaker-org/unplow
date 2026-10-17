@@ -169,6 +169,7 @@ def pack_unp_container(
         low_nibble |= FLAG_BAYES_MIXER
 
     flags = ((domain_id & 0x0F) << 4) | (low_nibble & 0x0F)
+    ctx_val = 512 if max_ctx_len is None else int(max_ctx_len)
 
     header = struct.pack(
         UNP_HEADER_FORMAT,
@@ -176,7 +177,7 @@ def pack_unp_container(
         UNP_VERSION,
         flags,
         num_tokens,
-        max_ctx_len,
+        ctx_val,
         digest_prefix,
     )
     return header + bitstream
