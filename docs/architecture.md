@@ -251,4 +251,26 @@ compresses across network depth:
    $\|W_{\text{down}}^{(l)}\|_2$ to isolate computational intensity across
    shallow, middle, and late layers.
 
+---
+
+## 12. Replow: Closed-Loop Refactoring, Distillation & High-Density Archiving
+
+Phase 8 introduces the `replow` closed-loop pipeline (`src/unplow/replow.py`),
+connecting extraction, syntax sanitization, dataset distillation staging, and
+high-density `.unp` container archiving:
+
+1. **Mechanistic Harvesting**: Extracts latent code basins from neural weights
+   via SVD task-vector steering and causal forward-hook impulses.
+2. **AST Static Analysis & Syntax Sanitization**: Strips markdown code fences,
+   normalizes indentation, validates semantic compilability via `ast.parse` and
+   `compile`, and provides automatic function stub wrappers for snippet
+   fragments.
+3. **Distillation Dataset Staging & Training Steps**: Formats refactored code
+   into structured JSONL training datasets and executes lightweight PyTorch
+   next-token cross-entropy gradient update steps across model parameters.
+4. **Bayesian CTS Archiving**: Compresses refactored code directly into
+   self-verifying `.unp` archives using the 3-expert Bayesian Context-Tree
+   Switching mixture coder (`FLAG_BAYES_MIXER = 0x08`), maximizing compression
+   density across structural code patterns.
+
 <!-- end of file: unplow/docs/architecture.md -->

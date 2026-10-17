@@ -7,7 +7,7 @@ PYTEST := uv run pytest
 
 .PHONY: help venv install test test-cov lint status models inspect circuits steer
 .PHONY: profile probe compress decompress archive unarchive manifold benchmark
-.PHONY: gguf-inspect subspace-steer task-vector audit daemon view watch sync clean
+.PHONY: gguf-inspect subspace-steer task-vector audit replow daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -24,6 +24,7 @@ help:
 	@echo "  make subspace-steer - Multi-neuron SVD subspace steering (Phase 5)"
 	@echo "  make task-vector - Cross-substrate task-vector SVD steering (Phase 6)"
 	@echo "  make audit      - Layer-wise internal information & Logit Lens audit (Phase 7)"
+	@echo "  make replow     - Refactor code basins, stage datasets, and archive (Phase 8)"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -82,6 +83,9 @@ task-vector:
 
 audit:
 	uv run unplow audit "def fibonacci(n):"
+
+replow:
+	uv run unplow replow --raw "def add(a, b):\n    return a + b" -o workspace/targets/sample_replow.unp
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32

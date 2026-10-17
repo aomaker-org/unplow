@@ -241,4 +241,21 @@ def test_worker_audit_task(mock_worker):
     assert audit_file.exists()
 
 
+def test_worker_replow_task(mock_worker):
+    task = mock_worker.queue.enqueue(
+        action="replow",
+        payload="```python\ndef square(x): return x * x\n```",
+        extra={"domain_id": 2, "train_steps": 1},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    replow_json = mock_worker.work_products_dir / f"{task.task_id}_replow.json"
+    replow_unp = mock_worker.work_products_dir / f"{task.task_id}_replow.unp"
+    assert replow_json.exists()
+    assert replow_unp.exists()
+
+
 # end of file: unplow/tests/test_worker.py

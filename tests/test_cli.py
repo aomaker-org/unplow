@@ -182,4 +182,35 @@ def test_cli_audit_execution_mock():
     assert len(data["layers"]) == 4
 
 
+def test_cli_replow_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "replow", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--raw" in result.stdout
+    assert "--stage-dataset" in result.stdout
+    assert "--train-steps" in result.stdout
+
+
+def test_cli_replow_mock(tmp_path):
+    out_unp = tmp_path / "mock_replow.unp"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "replow",
+            "--raw", "def compute(): return 100",
+            "-o", str(out_unp),
+            "-m", "mock",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["syntax_valid"] is True
+    assert out_unp.exists()
+
+
 # end of file: unplow/tests/test_cli.py

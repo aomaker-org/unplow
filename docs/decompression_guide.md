@@ -237,4 +237,51 @@ reports = auditor.audit_sequence("def fibonacci(n):", top_k=5)
 print(auditor.format_audit_table(reports, "def fibonacci(n):"))
 ```
 
+---
+
+## 10. Phase 8: Replow Closed-Loop Refactoring, Distillation & Archiving
+
+Phase 8 introduces the `replow` closed-loop pipeline, unifying mechanistic code
+extraction, AST static sanitization, dataset staging, gradient distillation,
+and high-density Bayesian CTS `.unp` container archiving.
+
+### A. Closed-Loop Execution via CLI
+Process raw steering output, strip markdown fences, validate syntax via the
+Python AST parser and compiler, and compress into a verified container:
+```bash
+# Run refactoring and container archiving
+unplow replow \
+  --raw "```python\ndef fib(n):\n    return n\n```" \
+  -o workspace/targets/fib.unp
+
+# Run refactoring with distillation fine-tuning step and dataset staging
+unplow replow \
+  --file extracted_snippet.py \
+  --domain python \
+  --stage-dataset workspace/targets/staged.jsonl \
+  --train-steps 1 \
+  -o workspace/targets/refactored.unp
+```
+
+### B. Python API Workflow
+```python
+from unplow.models import load_local_model
+from unplow.replow import ReplowEngine
+
+model, tokenizer = load_local_model()
+engine = ReplowEngine(model=model, tokenizer=tokenizer)
+
+# Execute end-to-end refactoring, staging, distillation, and archiving
+artifact = engine.run_pipeline(
+    raw_source="```python\ndef solve(x):\n    return x * 2\n```",
+    output_path="workspace/targets/artifact.unp",
+    dataset_path="workspace/targets/distill.jsonl",
+    domain="python",
+    train_steps=1,
+)
+print(f"Refactored Code:\n{artifact.refactored_code}")
+print(f"Container Size: {artifact.compressed_size} bytes")
+```
+
 <!-- end of file: unplow/docs/decompression_guide.md -->
+

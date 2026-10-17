@@ -106,6 +106,10 @@ from .queue import (
     Task,
     TaskStatus,
 )
+from .replow import (
+    ReplowArtifact,
+    ReplowEngine,
+)
 from .safety import (
     AdditiveFileHandler,
     AirGapViolationError,
@@ -135,7 +139,7 @@ from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -184,6 +188,8 @@ __all__ = [
     "OnlinePrefixCacheCDF",
     "Order1BigramCacheCDF",
     "PRECISION_BITS",
+    "ReplowArtifact",
+    "ReplowEngine",
     "SVDSubspaceSteeringEngine",
     "SteeredBasinRecord",
     "SubspaceSteeringRecord",

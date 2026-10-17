@@ -452,6 +452,35 @@ class DecompressionWorker:
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
                 self.processed_count += 1
 
+            elif action in ("replow", "replow_pipeline"):
+                from .models import load_causal_lm
+                from .replow import ReplowEngine
+
+                raw_code = task.payload or task.extra.get("raw_code", "def stub(): pass")
+                domain_id = task.extra.get("domain_id", 2)
+                train_steps = task.extra.get("train_steps", 0)
+                tok, mod, mod_path = load_causal_lm(model_identifier=self.model_name)
+                engine = ReplowEngine(mod, tok)
+
+                out_unp = self.work_products_dir / f"{task.task_id}_replow.unp"
+                artifact, loss = engine.run_pipeline(
+                    raw_code=raw_code,
+                    output_unp_path=out_unp,
+                    train_steps=train_steps,
+                    domain_id=domain_id,
+                )
+                output_dict = {
+                    "action": "replow",
+                    "model": mod_path,
+                    "artifact": artifact.to_dict(),
+                    "distillation_loss": loss,
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_replow.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
+                self.processed_count += 1
+
             else:
                 raise ValueError(f"Unknown decompression action '{task.action}'")
 
