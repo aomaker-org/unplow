@@ -145,7 +145,7 @@ else ['echo', '[-] No checkpoints found'];\
 sys.exit(subprocess.run(c).returncode)"
 
 web:
-	uv run unplow web --port 8765
+	uv run unplow web --host 0.0.0.0 --port 8765
 
 ui: web
 

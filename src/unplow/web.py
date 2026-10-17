@@ -9,12 +9,14 @@ pan/zoom viewing, and visualization history.
 """
 
 from datetime import datetime, timezone
+import getpass
 import glob
 import http.server
 import json
 import os
 from pathlib import Path
 import re
+import socket
 import socketserver
 import sys
 import threading
@@ -35,7 +37,34 @@ from .visualizer import (
 )
 
 DEFAULT_PORT = 8765
-DEFAULT_HOST = "127.0.0.1"
+DEFAULT_HOST = os.environ.get("UNPLOW_HOST", "0.0.0.0")
+
+
+def get_headless_status() -> bool:
+    """Detects if running on a headless server without active X11/Wayland display."""
+    return not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
+
+
+def get_lan_ip_addresses() -> List[str]:
+    """Identifies primary local network IP addresses for remote browser access."""
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))
+        primary_ip = s.getsockname()[0]
+        s.close()
+        if primary_ip and not primary_ip.startswith("127.") and primary_ip != "0.0.0.0":
+            ips.append(primary_ip)
+    except Exception:
+        pass
+    try:
+        hostname = socket.gethostname()
+        host_ip = socket.gethostbyname(hostname)
+        if host_ip and not host_ip.startswith("127.") and host_ip not in ips and host_ip != "0.0.0.0":
+            ips.append(host_ip)
+    except Exception:
+        pass
+    return ips or ["127.0.0.1"]
 
 
 def get_checkpoint_domains(base_dir: Path = Path("models")) -> Dict[str, List[Dict[str, Any]]]:
@@ -454,19 +483,118 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+  /* Remote SSH Modal */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+  .modal-box {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    width: 520px;
+    max-width: 90%;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+  }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+  }
+  .modal-close:hover { color: var(--text-main); }
+  .code-box {
+    background: #06080b;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: monospace;
+    font-size: 0.82rem;
+    color: var(--cyan);
+    margin: 8px 0;
+  }
+  .ssh-badge {
+    background: #102a3a;
+    border: 1px solid #00d2ff;
+    color: #00d2ff;
+    font-size: 0.72rem;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .ssh-badge:hover { background: #003644; }
 </style>
 </head>
 <body>
+
+<!-- Remote SSH Access Guide Modal -->
+<div id="ssh-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 style="font-size: 1rem; color: var(--text-main);">Remote Access from Windows 11 Host</h3>
+      <button class="modal-close" onclick="closeSshModal()">&times;</button>
+    </div>
+    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+      Server <code style="color: var(--cyan);">fg26</code> is running headlessly.
+      Connect from your Windows 11 host via:
+    </div>
+
+    <div class="section-title">Option 1: SSH Port Forwarding (Recommended & Encrypted)</div>
+    <div class="code-box">
+      <span id="ssh-cmd-text">ssh -L 8765:localhost:8765 fekerr@fg26</span>
+      <button class="tool-btn" onclick="copySshCmd()">Copy</button>
+    </div>
+    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 14px;">
+      Run in Windows PowerShell or Windows Terminal, then open
+      <a href="http://localhost:8765" target="_blank" style="color: var(--cyan);">http://localhost:8765</a>
+    </div>
+
+    <div class="section-title">Option 2: Direct LAN Connection</div>
+    <div style="font-size: 0.82rem; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
+      <div>Direct Hostname:
+        <a id="lan-link-hostname" href="http://fg26:8765" target="_blank" style="color: var(--cyan);">
+          http://fg26:8765
+        </a>
+      </div>
+      <div>Direct IP:
+        <a id="lan-link-ip" href="http://10.0.0.31:8765" target="_blank" style="color: var(--cyan);">
+          http://10.0.0.31:8765
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 
 <header>
   <div class="brand">
     <div class="logo">UNPLOW</div>
     <div class="badge">VISUALIZER STUDIO</div>
+    <button class="ssh-badge" onclick="openSshModal()">SSH Remote Guide</button>
   </div>
   <div class="header-telemetry">
     <div class="status-pill"><div class="dot"></div> <span id="telemetry-status">Engine Active</span></div>
     <div id="storage-status">Disk: Checking...</div>
-    <div id="active-image-title">Loading...</div>
+    <div id="server-host-badge" style="color: var(--cyan); font-family: monospace;">fg26:8765</div>
   </div>
 </header>
 
@@ -620,9 +748,41 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
       if (data.active_iteration) {
         document.getElementById('telemetry-status').textContent = `Pipeline Iteration #${data.active_iteration}`;
       }
+      if (data.server) {
+        const badge = document.getElementById('server-host-badge');
+        badge.textContent = `${data.server.hostname}:${window.location.port || 8765}`;
+        if (data.server.ssh_command) {
+          document.getElementById('ssh-cmd-text').textContent = data.server.ssh_command;
+        }
+        if (data.server.lan_ips && data.server.lan_ips.length > 0) {
+          const ip = data.server.lan_ips[0];
+          const port = window.location.port || 8765;
+          const ipEl = document.getElementById('lan-link-ip');
+          ipEl.textContent = `http://${ip}:${port}`;
+          ipEl.href = `http://${ip}:${port}`;
+          const hostEl = document.getElementById('lan-link-hostname');
+          hostEl.textContent = `http://${data.server.hostname}:${port}`;
+          hostEl.href = `http://${data.server.hostname}:${port}`;
+        }
+      }
     } catch (e) {
       console.warn("Status fetch failed", e);
     }
+  }
+
+  function openSshModal() {
+    document.getElementById('ssh-modal').style.display = 'flex';
+  }
+
+  function closeSshModal() {
+    document.getElementById('ssh-modal').style.display = 'none';
+  }
+
+  function copySshCmd() {
+    const txt = document.getElementById('ssh-cmd-text').textContent;
+    navigator.clipboard.writeText(txt).then(() => {
+      alert('Copied SSH tunnel command to clipboard: ' + txt);
+    });
   }
 
   async function fetchCheckpoints() {
@@ -896,10 +1056,22 @@ class UnplowWebHandler(http.server.BaseHTTPRequestHandler):
                             active_iter = max(active_iter, int(m[-1]))
                     except Exception:
                         pass
+            hostname = socket.gethostname()
+            username = getpass.getuser()
+            lan_ips = get_lan_ip_addresses()
+            port = self.server.server_address[1]
             self.send_json({
                 "storage": telem.to_dict(),
-                "active_iteration": active_iter or 6,
+                "active_iteration": active_iter or 8,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "server": {
+                    "hostname": hostname,
+                    "username": username,
+                    "lan_ips": lan_ips,
+                    "port": port,
+                    "ssh_command": f"ssh -L {port}:localhost:{port} {username}@{hostname}",
+                    "is_headless": get_headless_status(),
+                },
             })
             return
 
@@ -957,12 +1129,40 @@ def run_web_server(
 ) -> None:
     """Launches the Unplow Checkpoint Visualizer Studio Web Server."""
     server = ThreadingHTTPServer((host, port), UnplowWebHandler)
-    url = f"http://{host}:{port}"
-    print(f"[*] Unplow Checkpoint Visualizer Web Studio running at: {url}")
-    print("[*] Press Ctrl+C to terminate.")
+    hostname = socket.gethostname()
+    username = getpass.getuser()
+    lan_ips = get_lan_ip_addresses()
+    primary_ip = lan_ips[0] if lan_ips else "127.0.0.1"
+    is_headless = get_headless_status()
+
+    print("=" * 80)
+    print(" UNPLOW CHECKPOINT VISUALIZER STUDIO (HEADLESS / REMOTE ACCESS ENABLED)")
+    print("=" * 80)
+    print(f"[*] Server Listening Binding : http://{host}:{port}")
+    print(f"[*] Headless Server Hostname : {hostname}")
+    print(f"[*] Primary Local IP Address : {primary_ip}")
+    print("-" * 80)
+    print("HOW TO CONNECT FROM YOUR WINDOWS 11 HOST:")
+    print()
+    print("  Option 1 (SSH Port Forwarding - Recommended):")
+    print("    Run in Windows Terminal / PowerShell:")
+    print(f"      ssh -L {port}:localhost:{port} {username}@{hostname}")
+    print("    Then open your Windows browser to:")
+    print(f"      http://localhost:{port}")
+    print()
+    print("  Option 2 (Direct LAN Connection):")
+    print("    Open your Windows browser directly to:")
+    print(f"      http://{primary_ip}:{port}  or  http://{hostname}:{port}")
+    print("=" * 80)
+    print("[*] Press Ctrl+C to stop the web server.\n")
 
     if open_browser:
-        webbrowser.open(url)
+        if is_headless:
+            print("[!] Headless environment detected: skipping local browser launch.")
+            print("[!] Connect from Windows 11 using the SSH tunnel or direct LAN URL above.")
+        else:
+            local_url = f"http://127.0.0.1:{port}" if host == "0.0.0.0" else f"http://{host}:{port}"
+            webbrowser.open(local_url)
 
     try:
         server.serve_forever()

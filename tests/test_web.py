@@ -133,6 +133,10 @@ def test_web_server_endpoints(running_server: str, mock_checkpoints):
         assert resp.status == 200
         data = json.loads(resp.read().decode("utf-8"))
         assert "storage" in data
+        assert "server" in data
+        assert "hostname" in data["server"]
+        assert "ssh_command" in data["server"]
+        assert "lan_ips" in data["server"]
 
     # 4. GET /api/images
     with urllib.request.urlopen(f"{base_url}/api/images") as resp:
@@ -172,6 +176,18 @@ def test_web_server_endpoints(running_server: str, mock_checkpoints):
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         urllib.request.urlopen(f"{base_url}/nonexistent_route")
     assert exc_info.value.code == 404
+
+
+def test_headless_and_network_helpers():
+    from unplow.web import get_headless_status, get_lan_ip_addresses
+
+    is_head = get_headless_status()
+    assert isinstance(is_head, bool)
+
+    ips = get_lan_ip_addresses()
+    assert isinstance(ips, list)
+    assert len(ips) > 0
+    assert all(isinstance(ip, str) for ip in ips)
 
 
 # end of file: unplow/tests/test_web.py

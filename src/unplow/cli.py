@@ -490,8 +490,8 @@ def main() -> None:
     )
     p_web.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Host address to bind HTTP server (default: 127.0.0.1)",
+        default=os.environ.get("UNPLOW_HOST", "0.0.0.0"),
+        help="Host address to bind HTTP server (default: 0.0.0.0 for remote/SSH access)",
     )
     p_web.add_argument(
         "-p",
