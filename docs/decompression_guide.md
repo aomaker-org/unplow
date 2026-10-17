@@ -119,4 +119,27 @@ SwiGLU matrices:
    ($\mathbf{w}_{\text{gate}} + \mathbf{w}_{\text{up}}$) against token
    embeddings $W_E$, discovering multi-token trigger phrases.
 
+### Activation-Steered Basin Decompression (Phase 4)
+In Phase 4, `unplow steer` uses causal activation steering to decompress
+memorized training data basins associated with specific MLP neurons:
+1. RMSNorm Gain Folding: Folds `post_attention_layernorm.weight`
+   $\boldsymbol{\gamma}_{\text{post}}^{(l)}$ into SwiGLU receptor keys over
+   mean-centered $\tilde{W}_E = W_E - \bar{W}_E$ (Dar et al., 2023), eliminating
+   rogue-cone multilingual noise.
+2. Causal Forward Hooks: Attaches PyTorch hooks to `down_proj` at target layer
+   $l$ to inject directional impulse $\alpha \cdot \hat{\mathbf{v}}_i^{(l)}$
+   during early generation steps (Meng et al., 2022; Turner et al., 2023),
+   forcing the LLM to unpack the specific training corpus basin.
+
+### Continuous Online Prefix-Cache Mixture (Phase 4)
+In Phase 4, `unplow archive --cache-mix` dynamically mixes static LLM
+softmax probabilities with an online empirical unigram prefix cache:
+1. Monotonic Mixed Integer CDF: Blends static LLM probabilities with prefix
+   frequency counts without transmitting extra side-information bits.
+2. Bit-Flag `0x02` (`FLAG_CACHE_MIXTURE`): Encodes cache mixture in Bit 1 of
+   the 18-byte `.unp` header `flags` byte, preserving complete backward
+   compatibility with Phase 2 and Phase 3 containers.
+3. Per-Token Shannon Surprisal Profiler: `unplow profile` computes per-token
+   information content $-\log_2 P$ to quantify exact compression gains.
+
 <!-- end of file: unplow/docs/decompression_guide.md -->

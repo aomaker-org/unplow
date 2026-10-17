@@ -5,7 +5,8 @@ SHELL := /bin/bash
 PYTHON := uv run python
 PYTEST := uv run pytest
 
-.PHONY: help venv install test test-cov lint status models inspect probe compress decompress archive unarchive manifold benchmark daemon view watch sync clean
+.PHONY: help venv install test test-cov lint status models inspect circuits steer
+.PHONY: profile probe compress decompress archive unarchive manifold benchmark daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -16,6 +17,8 @@ help:
 	@echo "  make models     - Audit local LLMs available for decompression"
 	@echo "  make inspect    - Direct mechanistic MLP weight inspection via Logit Lens"
 	@echo "  make circuits   - Extract coupled SwiGLU circuits with mean-centered logit lens"
+	@echo "  make steer      - Activation-steered neuron basin decompression (Phase 4)"
+	@echo "  make profile    - Per-token Shannon surprisal & cache profiling (Phase 4)"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -57,6 +60,12 @@ inspect:
 circuits:
 	uv run unplow circuits --harvest --seeds 8
 
+steer:
+	uv run unplow steer --layer 16 --neuron 467 --gain 4.5 --seq-len 32
+
+profile:
+	uv run unplow profile --text "unplow_token unplow_token lossless cache mixture verification."
+
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
 
@@ -67,7 +76,9 @@ decompress:
 	@echo "Run: uv run unplow decompress <payload_file> --tokens <num_tokens>"
 
 archive:
-	uv run unplow archive --text "Information theory connects sequence modeling with data compression." -o workspace/targets/sample.unp
+	uv run unplow archive \
+		--text "Information theory connects sequence modeling with data compression." \
+		-o workspace/targets/sample.unp
 
 unarchive:
 	uv run unplow unarchive workspace/targets/sample.unp

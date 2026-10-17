@@ -12,6 +12,13 @@ Treats large language models as compressed data archives, providing:
 6. Atomic file-backed queue scheduling and tamper-evident forensic ledgers.
 """
 
+from .cache_coder import (
+    FLAG_CACHE_MIXTURE,
+    OnlinePrefixCacheCDF,
+    SurprisalProfileReport,
+    TokenSurprisalEntry,
+    profile_sequence_surprisal,
+)
 from .circuits import (
     AssociativeCircuitTrace,
     SwiGLUCircuitDecompressor,
@@ -50,6 +57,8 @@ from .mechanistic import (
     NeuronMemoryTrace,
 )
 from .models import (
+    DeterministicMockCausalLM,
+    DeterministicMockTokenizer,
     MockByteTokenizer,
     MockCausalLM,
     audit_system_models,
@@ -62,6 +71,8 @@ from .paradigm1 import (
 )
 from .paradigm2 import (
     CompressionStats,
+    ContainerResult,
+    DecompressResult,
     LLMArithmeticCodec,
     MAX_VAL,
     PRECISION_BITS,
@@ -82,11 +93,16 @@ from .safety import (
     validate_additive_artifact_path,
     validate_local_only_url,
 )
+from .steering import (
+    FoldedCircuitTrace,
+    MechanisticSteeringEngine,
+    SteeredBasinRecord,
+)
 from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -95,27 +111,38 @@ __all__ = [
     "CANONICAL_ROOT_FILES",
     "CANONICAL_SOURCE_DIRS",
     "CompressionStats",
+    "ContainerResult",
     "DOMAIN_NAME_TO_ID",
     "DOMAIN_PRIORS",
+    "DecompressResult",
     "DecompressionWorker",
+    "DeterministicMockCausalLM",
+    "DeterministicMockTokenizer",
     "ExtractedRecord",
+    "FLAG_CACHE_MIXTURE",
     "FLAG_LOSSLESS_VERIFIED",
     "FLAG_MANIFOLD_SEED",
     "FileTaskQueue",
+    "FoldedCircuitTrace",
     "ForensicAuditLogger",
     "GitDestructiveOperationError",
     "GitSafetyGuard",
     "LLMArithmeticCodec",
     "MAX_VAL",
+    "MechanisticSteeringEngine",
     "MechanisticWeightInspector",
     "MockByteTokenizer",
     "MockCausalLM",
     "NeuronMemoryTrace",
+    "OnlinePrefixCacheCDF",
     "PRECISION_BITS",
+    "SteeredBasinRecord",
+    "SurprisalProfileReport",
     "SwiGLUCircuitDecompressor",
     "TOTAL_FREQ",
     "Task",
     "TaskStatus",
+    "TokenSurprisalEntry",
     "UNP_HEADER_FORMAT",
     "UNP_HEADER_SIZE",
     "UNP_MAGIC",
@@ -131,6 +158,7 @@ __all__ = [
     "pack_flags_with_domain",
     "pack_unp_container",
     "prewarm_kv_cache_for_domain",
+    "profile_sequence_surprisal",
     "resolve_domain_id",
     "resolve_model_path",
     "select_optimal_domain_mdl",

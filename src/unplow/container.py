@@ -28,6 +28,7 @@ UNP_HEADER_SIZE = struct.calcsize(UNP_HEADER_FORMAT)
 UNP_MAGIC = b"UNPLOW"
 UNP_VERSION = 1
 FLAG_LOSSLESS_VERIFIED = 0x01
+FLAG_CACHE_MIXTURE = 0x02
 FLAG_MANIFOLD_SEED = 0x00
 
 
@@ -48,6 +49,15 @@ class UnpArchiveMetadata:
         return bool(self.flags & FLAG_LOSSLESS_VERIFIED)
 
     @property
+    def cache_mixture(self) -> bool:
+        """Bit 1: True if online prefix-cache mixture CDF is enabled."""
+        return bool(self.flags & FLAG_CACHE_MIXTURE)
+
+    @property
+    def is_cache_mixture_enabled(self) -> bool:
+        return self.cache_mixture
+
+    @property
     def domain_id(self) -> int:
         """4-bit domain conditioning prior ID (0..15) stored in upper nibble."""
         return (self.flags >> 4) & 0x0F
@@ -55,6 +65,8 @@ class UnpArchiveMetadata:
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["domain_id"] = self.domain_id
+        d["cache_mixture"] = self.cache_mixture
+        d["is_cache_mixture_enabled"] = self.is_cache_mixture_enabled
         return d
 
 
@@ -97,14 +109,22 @@ def pack_unp_container(
     plaintext: Optional[str] = None,
     verify_hash: bool = True,
     domain_id: int = 0,
+    enable_cache_mixture: bool = False,
+    use_cache_mixture: Optional[bool] = None,
 ) -> bytes:
     """Pack raw arithmetic bitstream into an 18-byte framed .unp container."""
+    if use_cache_mixture is not None:
+        enable_cache_mixture = use_cache_mixture
+
     if plaintext is not None and verify_hash:
         digest_prefix = hashlib.sha256(plaintext.encode("utf-8")).digest()[:4]
         low_nibble = FLAG_LOSSLESS_VERIFIED
     else:
         digest_prefix = b"\x00\x00\x00\x00"
         low_nibble = FLAG_MANIFOLD_SEED
+
+    if enable_cache_mixture:
+        low_nibble |= FLAG_CACHE_MIXTURE
 
     flags = ((domain_id & 0x0F) << 4) | (low_nibble & 0x0F)
 

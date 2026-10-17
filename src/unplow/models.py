@@ -57,8 +57,13 @@ def load_causal_lm(
     dtype: Optional[torch.dtype] = None,
 ) -> Tuple[Any, Any, str]:
     """Load AutoTokenizer and AutoModelForCausalLM from local weights."""
-    target_path = resolve_model_path(model_identifier)
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    if model_identifier == "mock":
+        tokenizer = MockByteTokenizer(vocab_size=260)
+        model = MockCausalLM(vocab_size=260, hidden_dim=32).to(device)
+        return tokenizer, model, "mock"
+
+    target_path = resolve_model_path(model_identifier)
     dtype = dtype or (torch.float16 if device == "cuda" else torch.float32)
 
     logger.info("Loading tokenizer from %s...", target_path)
@@ -132,6 +137,13 @@ def audit_system_models() -> List[Dict[str, Any]]:
 # Deterministic Mock Components for High-Speed Unit Testing
 # ------------------------------------------------------------------------------
 
+class MockBatchEncoding:
+    """Mock container providing .input_ids for HuggingFace tokenizer output."""
+
+    def __init__(self, input_ids: torch.Tensor):
+        self.input_ids = input_ids
+
+
 class MockByteTokenizer:
     """Deterministic byte-level tokenizer for zero-dependency unit tests."""
 
@@ -160,6 +172,72 @@ class MockByteTokenizer:
                 clean.append((t - 2) % 256)
         return bytes(clean).decode("utf-8", errors="replace")
 
+    def __call__(self, text: str, return_tensors: Optional[str] = None, **kwargs: Any) -> Any:
+        tokens = self.encode(text)
+        if return_tensors == "pt":
+            return MockBatchEncoding(input_ids=torch.tensor([tokens], dtype=torch.long))
+        return {"input_ids": tokens}
+
+
+class DeterministicMockTokenizer:
+    """Deterministic mock tokenizer supporting multi-character tokens for mechanistic tests."""
+
+    def __init__(self, vocab_size: int = 256):
+        self.vocab_size = vocab_size
+        self.bos_token_id = 0
+        self.eos_token_id = 1
+        self.id_to_token: Dict[int, str] = {0: "<bos>", 1: "<eos>"}
+        self.token_to_id: Dict[str, int] = {"<bos>": 0, "<eos>": 1}
+        sample_words = [
+            "alpha", "beta", "gamma", "delta", "epsilon", "def", "class", "return",
+            "self", "import", "tensor", "model", "cache", "basin", "circuit", "trace",
+            "layer", "neuron", "weight", "lossless", "unplow", "stream", "norm", "gain",
+        ]
+        for i, w in enumerate(sample_words):
+            if i + 2 < self.vocab_size:
+                idx = i + 2
+                self.id_to_token[idx] = w
+                self.token_to_id[w] = idx
+        for i in range(len(sample_words) + 2, self.vocab_size):
+            w = f"tok_{i}"
+            self.id_to_token[i] = w
+            self.token_to_id[w] = i
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> List[int]:
+        tokens: List[int] = []
+        for word in text.replace("\n", " \n ").split(" "):
+            if not word:
+                continue
+            if word in self.token_to_id:
+                tokens.append(self.token_to_id[word])
+            else:
+                idx = 2 + (abs(hash(word)) % (self.vocab_size - 2))
+                self.token_to_id[word] = idx
+                self.id_to_token[idx] = word
+                tokens.append(idx)
+        if add_special_tokens:
+            tokens = [self.bos_token_id] + tokens + [self.eos_token_id]
+        return tokens
+
+    def decode(
+        self,
+        tokens: List[int],
+        clean_up_tokenization_spaces: bool = False,
+        skip_special_tokens: bool = False,
+    ) -> str:
+        words: List[str] = []
+        for t in tokens:
+            if skip_special_tokens and t in (self.bos_token_id, self.eos_token_id):
+                continue
+            words.append(self.id_to_token.get(t, f"tok_{t}"))
+        return " ".join(words)
+
+    def __call__(self, text: str, return_tensors: Optional[str] = None, **kwargs: Any) -> Any:
+        tokens = self.encode(text)
+        if return_tensors == "pt":
+            return MockBatchEncoding(input_ids=torch.tensor([tokens], dtype=torch.long))
+        return {"input_ids": tokens}
+
 
 class MockModelOutput:
     """Mock container for model logits and past key values."""
@@ -184,6 +262,7 @@ class MockTransformerLayer(nn.Module):
     def __init__(self, hidden_dim: int = 32, ffn_dim: int = 64):
         super().__init__()
         self.mlp = MockMLP(hidden_dim, ffn_dim)
+        self.post_attention_layernorm = nn.LayerNorm(hidden_dim)
 
 
 class MockModelBody(nn.Module):
@@ -234,5 +313,9 @@ class MockCausalLM(nn.Module):
                     for k, v in past_key_values
                 )
         return MockModelOutput(logits=logits, past_key_values=new_past)
+
+
+# Aliases for explicit mechanistic unit testing
+DeterministicMockCausalLM = MockCausalLM
 
 # end of file: unplow/src/unplow/models.py

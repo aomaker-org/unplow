@@ -141,4 +141,31 @@ projections directly from static weight matrices without forward passes:
 4. **Fast PyTorch CDF**: Vectorized int64 cumulative frequency quantization
    eliminates per-token NumPy roundtrips on large vocabularies.
 
+---
+
+## 8. RMSNorm-Folded Key Lenses & Activation Steering
+
+Phase 4 introduces mechanistic activation steering and continuous online cache
+mixture arithmetic coding:
+
+1. **RMSNorm Gain Folding**: Pre-MLP affine gains
+   $\boldsymbol{\gamma}_{\text{post}}^{(l)}$ are folded into SwiGLU receptor
+   vectors $\tilde{\mathbf{k}}_i = (\mathbf{w}_{\text{gate}, i} +
+   \mathbf{w}_{\text{up}, i}) \odot \boldsymbol{\gamma}_{\text{post}}^{(l)}$
+   and projected onto mean-centered embeddings $\tilde{W}_E = W_E - \bar{W}_E$
+   (Dar et al., 2023), eliminating rogue-cone multilingual noise artifacts.
+2. **Causal Forward-Hook Steering**: Attaches PyTorch forward hooks to target
+   MLP `down_proj` layers, injecting directional impulses
+   $\alpha \cdot \hat{\mathbf{v}}_i^{(l)}$ into the residual stream to
+   causally force the LLM to decompress specific memorized training basins
+   (Meng et al., 2022; Turner et al., 2023).
+3. **Continuous Online Prefix-Cache Mixture**: Mixes static LLM probabilities
+   with a lockstep empirical unigram frequency cache ($P_{\text{mix}} =
+   (1-\lambda)P_{\theta} + \lambda P_{\text{cache}}$) via container bit-flag
+   `0x02` (`FLAG_CACHE_MIXTURE`) without side-information bits (Kuhn & De Mori,
+   1990; Grave et al., 2017).
+4. **Per-Token Surprisal Profiler**: Quantifies exact Shannon bit costs
+   $-\log_2 P(x_t \mid x_{<t})$ across sequence trajectories to attribute
+   empirical entropy gains from continuous prefix caching.
+
 <!-- end of file: unplow/docs/architecture.md -->

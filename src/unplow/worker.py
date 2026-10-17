@@ -186,9 +186,14 @@ class DecompressionWorker:
                 text = task.payload or task.extra.get("text", "")
                 max_ctx = task.extra.get("max_ctx_len", 512)
                 domain_id = task.extra.get("domain_id", 0)
+                cache_mix = task.extra.get("cache_mixture", task.extra.get("cache_mix", False))
                 codec = self.get_p2_codec()
                 container_bytes, meta, stats = codec.compress_to_container(
-                    text, max_ctx_len=max_ctx, verify_hash=True, domain_id=domain_id
+                    text,
+                    max_ctx_len=max_ctx,
+                    verify_hash=True,
+                    domain_id=domain_id,
+                    enable_cache_mixture=cache_mix,
                 )
                 b64_container = base64.b64encode(container_bytes).decode("ascii")
 
@@ -204,6 +209,61 @@ class DecompressionWorker:
                 unp_path = self.work_products_dir / f"{task.task_id}.unp"
                 self.file_handler.write_additive_bytes(unp_path, container_bytes)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=codec.model_path)
+                self.processed_count += 1
+
+            elif action in ("steer", "steering"):
+                from .steering import MechanisticSteeringEngine
+                engine = MechanisticSteeringEngine(model_name=self.model_name)
+                layer_idx = task.extra.get("layer", 0)
+                neuron_idx = task.extra.get("neuron", 0)
+                prompt = task.extra.get("prompt", "/* ")
+                seq_len = task.extra.get("seq_len", 48)
+                gain = task.extra.get("gain", 4.5)
+                steps = task.extra.get("steps", 16)
+                temp = task.extra.get("temperature", 0.25)
+                rec = engine.decompress_neuron_basin(
+                    layer_idx=layer_idx,
+                    neuron_idx=neuron_idx,
+                    seed_prompt=prompt,
+                    seq_len=seq_len,
+                    steering_gain=gain,
+                    steering_steps=steps,
+                    temperature=temp,
+                )
+                output_dict = {
+                    "action": "steer",
+                    "model": engine.model_path,
+                    "record": rec.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_steered.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=engine.model_path)
+                self.processed_count += 1
+
+            elif action in ("profile", "surprisal"):
+                from .cache_coder import profile_sequence_surprisal
+                from .models import load_causal_lm
+                tok, mod, mod_path = load_causal_lm(model_identifier=self.model_name)
+                text = task.payload or task.extra.get("text", "")
+                cache_weight = task.extra.get("cache_weight", 0.08)
+                bos_id = getattr(tok, "bos_token_id", 0) or 0
+                report = profile_sequence_surprisal(
+                    model=mod,
+                    tokenizer=tok,
+                    plaintext=text,
+                    bos_token_id=bos_id,
+                    cache_weight=cache_weight,
+                )
+                output_dict = {
+                    "action": "profile",
+                    "model": mod_path,
+                    "report": report.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_surprisal.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
                 self.processed_count += 1
 
             elif action in ("circuits", "circuit", "swiglu"):
