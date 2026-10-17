@@ -29,13 +29,15 @@ from typing import Optional
 
 from .circuits import SwiGLUCircuitDecompressor
 from .conditioning import DOMAIN_PRIORS
-from .container import unpack_unp_container
+from .container import FLAG_BAYES_MIXER, unpack_unp_container
+from .ctw_coder import BayesianCTSMixerCDF
 from .forensics import ForensicAuditLogger, get_telemetry_snapshot
 from .mechanistic import MechanisticWeightInspector
 from .models import audit_system_models, resolve_model_path
 from .paradigm1 import WeightDecompressor
 from .paradigm2 import LLMArithmeticCodec
 from .queue import FileTaskQueue
+from .task_vectors import CrossSubstrateTaskVectorEngine
 from .worker import DecompressionWorker
 
 
@@ -112,6 +114,13 @@ def main() -> None:
         action="store_true",
         help="Enable Order-1 Markov bigram cache mixture coding",
     )
+    p_comp.add_argument(
+        "--bayes-mix",
+        "--bayes-mixture",
+        dest="bayes_mix",
+        action="store_true",
+        help="Enable online Bayesian Context-Tree Switching mixture coding (Bit 3)",
+    )
     p_comp.add_argument("-o", "--output", help="Output binary file path")
 
     # Command: decompress (Paradigm 2)
@@ -135,6 +144,13 @@ def main() -> None:
         dest="bigram_mix",
         action="store_true",
         help="Enable Order-1 Markov bigram cache mixture coding",
+    )
+    p_decomp.add_argument(
+        "--bayes-mix",
+        "--bayes-mixture",
+        dest="bayes_mix",
+        action="store_true",
+        help="Enable online Bayesian Context-Tree Switching mixture coding (Bit 3)",
     )
     p_decomp.add_argument("-o", "--output", help="Output file path for reconstructed text")
 
@@ -170,6 +186,13 @@ def main() -> None:
         dest="bigram_mix",
         action="store_true",
         help="Enable Order-1 Markov bigram cache mixture coding (Bit 2)",
+    )
+    p_arch.add_argument(
+        "--bayes-mix",
+        "--bayes-mixture",
+        dest="bayes_mix",
+        action="store_true",
+        help="Enable online Bayesian Context-Tree Switching mixture coding (Bit 3)",
     )
 
     # Command: steer (Phase 4 Activation Steering)
@@ -263,6 +286,32 @@ def main() -> None:
         help="Sampling temperature (default: 0.25)",
     )
     p_sub.add_argument("-o", "--output", help="Output JSON path for subspace record")
+
+    # Command: task-vector (Phase 6 Cross-Substrate Task Vectors & Differential Steering)
+    p_tv = subparsers.add_parser(
+        "task-vector",
+        aliases=["tv", "taskvector"],
+        help="Cross-substrate task-vector forensics & differential SVD steering (Ilharco et al., 2023)",
+    )
+    p_tv.add_argument("--gguf", required=True, help="Path to .gguf model file")
+    p_tv.add_argument("--layer", type=int, default=16, help="Layer index to analyze / steer (default: 16)")
+    p_tv.add_argument("-m", "--model", default="auto", help="Reference model name or local snapshot path")
+    p_tv.add_argument("--steer", action="store_true", help="Steer generation along cross-substrate task vector")
+    p_tv.add_argument("--prompt", default="def ", help="Seed prompt for steered generation (default: 'def ')")
+    p_tv.add_argument("--gain", type=float, default=4.5, help="Steering impulse gain (default: 4.5)")
+    p_tv.add_argument("--seq-len", type=int, default=48, help="Sequence length to generate (default: 48)")
+    p_tv.add_argument("--steps", type=int, default=16, help="Number of forward passes to steer (default: 16)")
+    p_tv.add_argument(
+        "--temp",
+        "--temperature",
+        dest="temperature",
+        type=float,
+        default=0.25,
+        help="Sampling temperature (default: 0.25)",
+    )
+    p_tv.add_argument("--top-tokens", type=int, default=6, help="Top tokens to decode via Logit Lens (default: 6)")
+    p_tv.add_argument("--top-neurons", type=int, default=6, help="Top divergent neurons to analyze (default: 6)")
+    p_tv.add_argument("-o", "--output", help="Output JSON path for report or steered record")
 
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
@@ -605,6 +654,68 @@ def main() -> None:
                 json.dump(rec.to_dict(), f, indent=2)
             print(f"\n[+] Exported subspace steering record to {out_p}")
 
+    elif args.command in ("task-vector", "tv", "taskvector"):
+        from .models import load_causal_lm
+        from .task_vectors import CrossSubstrateTaskVectorEngine
+        import torch
+
+        gguf_p = Path(args.gguf)
+        if not gguf_p.exists():
+            print(f"[-] Error: GGUF model file '{args.gguf}' not found.", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"[*] Loading reference model for Cross-Substrate Task Vector: {args.model}...")
+        tokenizer, model, _ = load_causal_lm(model_identifier=args.model, dtype=torch.float32)
+        engine = CrossSubstrateTaskVectorEngine(model, tokenizer)
+
+        print(f"[*] Extracting Task Vector Delta from {gguf_p.name} at Layer {args.layer}...")
+        vec, report = engine.compute_layer_task_vector(
+            gguf_path=gguf_p,
+            layer_idx=args.layer,
+            top_k_tokens=args.top_tokens,
+            top_k_neurons=args.top_neurons,
+        )
+
+        print("\n=== Cross-Substrate Task-Vector Spectrum Report ===")
+        print(f"GGUF Source       : {report.gguf_tensor_name}")
+        print(f"Target Layer      : Layer {report.layer_idx}")
+        print(f"Frobenius Delta   : {report.frobenius_delta_norm:.4f}")
+        print(f"Cosine Similarity : {report.cosine_similarity:.6f}")
+        print(f"Top Singular Value: {report.top_singular_value:.4f}")
+        print(f"SV Variance Ratio : {report.explained_variance_ratio:.4f}")
+        print(f"Promoted Tokens   : {report.promoted_tokens}")
+        print(f"Suppressed Tokens : {report.suppressed_tokens}")
+        print(f"Top Divergent Cols: {report.top_divergent_neurons}")
+
+        steered_record = None
+        if args.steer:
+            print(
+                f"\n[*] Steering live model along task vector (gain: {args.gain}, "
+                f"steps: {args.steps}, seq_len: {args.seq_len})..."
+            )
+            steered_record = engine.steer_with_gguf_task_vector(
+                gguf_path=gguf_p,
+                layer_idx=args.layer,
+                seed_prompt=args.prompt,
+                seq_len=args.seq_len,
+                steering_gain=args.gain,
+                steering_steps=args.steps,
+                temperature=args.temperature,
+            )
+            print("\n=== Steered Cross-Substrate Generation Result ===")
+            print(f"Extracted Text    : {steered_record.extracted_text}")
+            print(f"Model Loss (CE)   : {steered_record.model_bpb:.3f} bpb")
+            print(f"zlib Compression  : {steered_record.zlib_bpb:.3f} bpb")
+            print(f"Memorization Score: {steered_record.memorization_score:.3f}x")
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            data = steered_record.to_dict() if steered_record is not None else report.to_dict()
+            with open(out_p, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            print(f"\n[+] Exported task vector results to {out_p}")
+
     elif args.command in ("archive", "pack"):
         text = args.text
         if args.file:
@@ -623,9 +734,10 @@ def main() -> None:
         domain_choice = "auto" if getattr(args, "auto_domain", False) else (args.domain or 0)
         cache_mix = getattr(args, "cache_mix", False)
         bigram_mix = getattr(args, "bigram_mix", False)
+        bayes_mix = getattr(args, "bayes_mix", False)
         print(f"[*] Packing into .unp container using model: {args.model} "
               f"(domain: {domain_choice}, max_ctx: {args.max_ctx_len}, "
-              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix})...")
+              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix}, bayes_mix: {bayes_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         container_bytes, meta, stats = codec.compress_to_container(
             text=text,
@@ -634,6 +746,7 @@ def main() -> None:
             domain_id=domain_choice,
             enable_cache_mixture=cache_mix,
             enable_bigram_cache=bigram_mix,
+            enable_bayes_mixer=bayes_mix,
         )
 
         out_path = Path(args.output) if args.output else Path(f"{args.file or 'payload'}.unp")
@@ -642,7 +755,9 @@ def main() -> None:
 
         dom_name = DOMAIN_PRIORS.get(meta.domain_id, ("unknown", ""))[0]
         cache_mode = "DISABLED"
-        if meta.bigram_cache:
+        if meta.bayes_mixer:
+            cache_mode = "BAYESIAN CTS (Bit 3)"
+        elif meta.bigram_cache:
             cache_mode = "BIGRAM (Bit 2)"
         elif meta.cache_mixture:
             cache_mode = "UNIGRAM (Bit 1)"
@@ -671,7 +786,9 @@ def main() -> None:
 
         dom_name = DOMAIN_PRIORS.get(meta.domain_id, ("unknown", ""))[0]
         cache_mode = "DISABLED"
-        if meta.bigram_cache:
+        if meta.bayes_mixer:
+            cache_mode = "BAYESIAN CTS (Bit 3)"
+        elif meta.bigram_cache:
             cache_mode = "BIGRAM (Bit 2)"
         elif meta.cache_mixture:
             cache_mode = "UNIGRAM (Bit 1)"
@@ -706,14 +823,16 @@ def main() -> None:
 
         cache_mix = getattr(args, "cache_mix", False)
         bigram_mix = getattr(args, "bigram_mix", False)
+        bayes_mix = getattr(args, "bayes_mix", False)
         print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, "
-              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix})...")
+              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix}, bayes_mix: {bayes_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         payload, n_tokens, stats = codec.compress(
             text,
             max_ctx_len=args.max_ctx_len,
             enable_cache_mixture=cache_mix,
             enable_bigram_cache=bigram_mix,
+            enable_bayes_mixer=bayes_mix,
         )
 
         print("\n=== [Paradigm 2] Lossless Arithmetic Compression Results ===")
@@ -740,9 +859,10 @@ def main() -> None:
 
         cache_mix = getattr(args, "cache_mix", False)
         bigram_mix = getattr(args, "bigram_mix", False)
+        bayes_mix = getattr(args, "bayes_mix", False)
         payload_bytes = payload_p.read_bytes()
         print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, "
-              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix})...")
+              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix}, bayes_mix: {bayes_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         print(f"[*] Decompressing {len(payload_bytes)} bytes into {args.tokens} tokens...")
         t0 = time.time()
@@ -752,6 +872,7 @@ def main() -> None:
             max_ctx_len=args.max_ctx_len,
             enable_cache_mixture=cache_mix,
             enable_bigram_cache=bigram_mix,
+            enable_bayes_mixer=bayes_mix,
         )
         elapsed = time.time() - t0
 

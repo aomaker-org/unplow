@@ -201,4 +201,28 @@ def test_worker_subspace_task(mock_worker):
     subspace_file = mock_worker.work_products_dir / f"{task.task_id}_subspace.json"
     assert subspace_file.exists()
 
+
+def test_worker_task_vector_task(mock_worker, tmp_path):
+    from unplow.gguf_inspector import GGML_TYPE_F32, build_synthetic_gguf_v3_bytes
+    import numpy as np
+
+    matrix = np.ones((32, 64), dtype=np.float32)
+    gguf_bytes = build_synthetic_gguf_v3_bytes(
+        "blk.1.ffn_down.weight", matrix, ggml_type=GGML_TYPE_F32
+    )
+    gguf_file = tmp_path / "worker_tv.gguf"
+    gguf_file.write_bytes(gguf_bytes)
+
+    task = mock_worker.queue.enqueue(
+        action="task_vector",
+        extra={"gguf": str(gguf_file), "layer": 1, "steer": True, "seq_len": 6, "steps": 2},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    out_file = mock_worker.work_products_dir / f"{task.task_id}_task_vector.json"
+    assert out_file.exists()
+
 # end of file: unplow/tests/test_worker.py

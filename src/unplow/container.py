@@ -30,6 +30,7 @@ UNP_VERSION = 1
 FLAG_LOSSLESS_VERIFIED = 0x01
 FLAG_CACHE_MIXTURE = 0x02
 FLAG_BIGRAM_CACHE = 0x04
+FLAG_BAYES_MIXER = 0x08
 FLAG_MANIFOLD_SEED = 0x00
 
 
@@ -68,6 +69,15 @@ class UnpArchiveMetadata:
         return self.bigram_cache
 
     @property
+    def bayes_mixer(self) -> bool:
+        """Bit 3: True if online Bayesian CTS mixture CDF is enabled."""
+        return bool(self.flags & FLAG_BAYES_MIXER)
+
+    @property
+    def is_bayes_mixer_enabled(self) -> bool:
+        return self.bayes_mixer
+
+    @property
     def domain_id(self) -> int:
         """4-bit domain conditioning prior ID (0..15) stored in upper nibble."""
         return (self.flags >> 4) & 0x0F
@@ -79,6 +89,8 @@ class UnpArchiveMetadata:
         d["is_cache_mixture_enabled"] = self.is_cache_mixture_enabled
         d["bigram_cache"] = self.bigram_cache
         d["is_bigram_cache_enabled"] = self.is_bigram_cache_enabled
+        d["bayes_mixer"] = self.bayes_mixer
+        d["is_bayes_mixer_enabled"] = self.is_bayes_mixer_enabled
         return d
 
 
@@ -126,6 +138,9 @@ def pack_unp_container(
     enable_bigram_cache: bool = False,
     use_bigram_cache: Optional[bool] = None,
     bigram_cache: Optional[bool] = None,
+    enable_bayes_mixer: bool = False,
+    use_bayes_mixer: Optional[bool] = None,
+    bayes_mixer: Optional[bool] = None,
 ) -> bytes:
     """Pack raw arithmetic bitstream into an 18-byte framed .unp container."""
     if use_cache_mixture is not None:
@@ -134,6 +149,10 @@ def pack_unp_container(
         enable_bigram_cache = use_bigram_cache
     if bigram_cache is not None:
         enable_bigram_cache = bigram_cache
+    if use_bayes_mixer is not None:
+        enable_bayes_mixer = use_bayes_mixer
+    if bayes_mixer is not None:
+        enable_bayes_mixer = bayes_mixer
 
     if plaintext is not None and verify_hash:
         digest_prefix = hashlib.sha256(plaintext.encode("utf-8")).digest()[:4]
@@ -146,6 +165,8 @@ def pack_unp_container(
         low_nibble |= FLAG_CACHE_MIXTURE
     if enable_bigram_cache:
         low_nibble |= FLAG_BIGRAM_CACHE
+    if enable_bayes_mixer:
+        low_nibble |= FLAG_BAYES_MIXER
 
     flags = ((domain_id & 0x0F) << 4) | (low_nibble & 0x0F)
 

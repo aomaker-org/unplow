@@ -23,12 +23,19 @@ def test_flag_nibble_packing_roundtrip():
     for dom_id in range(16):
         for verify in (True, False):
             for bg in (True, False):
-                packed = pack_flags_with_domain(verify_hash=verify, domain_id=dom_id, bigram_cache=bg)
-                assert 0 <= packed <= 255
-                un_verify, un_dom = unpack_flags_with_domain(packed)
-                assert un_verify == verify
-                assert un_dom == dom_id
-                assert bool(packed & 0x04) == bg
+                for bayes in (True, False):
+                    packed = pack_flags_with_domain(
+                        verify_hash=verify,
+                        domain_id=dom_id,
+                        bigram_cache=bg,
+                        bayes_mixer=bayes,
+                    )
+                    assert 0 <= packed <= 255
+                    un_verify, un_dom = unpack_flags_with_domain(packed)
+                    assert un_verify == verify
+                    assert un_dom == dom_id
+                    assert bool(packed & 0x04) == bg
+                    assert bool(packed & 0x08) == bayes
 
 
 def test_resolve_domain_id():

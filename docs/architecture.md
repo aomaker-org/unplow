@@ -73,7 +73,7 @@ comprising an 18-byte big-endian header followed by raw interval bits:
 | :--- | :--- | :--- | :--- | :--- |
 | `0x00` | `magic` | ASCII | 6 B | Magic bytes `UNPLOW` |
 | `0x06` | `version` | uint8 | 1 B | Archive format version (`0x01`) |
-| `0x07` | `flags` | uint8 | 1 B | `0x01` = Verified, `0x00` = Seed |
+| `0x07` | `flags` | uint8 | 1 B | Bitfield: Bits 0..3 modes, 4..7 domain |
 | `0x08` | `num_tokens`| uint32 | 4 B | Exact token count to decode |
 | `0x0C` | `max_ctx_len`| uint16 | 2 B | KV-cache horizon stride |
 | `0x0E` | `sha256_pre`| bytes | 4 B | First 32 bits of plaintext SHA-256 |
@@ -194,5 +194,39 @@ Phase 5 unlocks multi-substrate forensics and higher-order sequence modeling:
    Order-1 bigram transition probabilities $P_{\text{bi}}(x_t \mid x_{t-1})$
    (Cleary & Witten, 1984; Willems et al., 1995) to slash bitrates for
    recurrent multi-token identifiers in lockstep between encoder and decoder.
+
+---
+
+## 10. Cross-Substrate Task Vectors & Online Bayesian CTS Mixture Coding
+
+Phase 6 completes the 8-bit `.unp` container flag register and bridges static
+GGUF binaries with active Safetensors models:
+
+1. **Cross-Substrate Task-Vector Forensics**: Bridges memory-mapped GGUFs and
+   live Safetensors models via MLP weight delta:
+   $$\Delta W_{\text{down}}^{(l)} = W_{\text{GGUF}}^{(l)} -
+   W_{\text{Safetensors}}^{(l)}$$
+   isolating domain specialization (e.g. `Coder - Instruct`) or pre-training
+   priors (`Base - Instruct`) without dual-model RAM overhead (Ilharco et al.,
+   2023; Nasr et al., 2023).
+2. **Logit Lens Shift Projection**: Projects top left singular vector
+   $\mathbf{u}_{\Delta, 1}^{(l)}$ through model RMSNorm and `lm_head` to
+   identify vocabulary promotion and suppression directions.
+3. **Differential SVD Steering**: Attaches forward hooks injecting
+   $+\gamma \mathbf{u}_{\Delta, 1}^{(l)}$ into the residual stream to steer
+   generation along inter-model specialization subspaces (Meng et al., 2022).
+4. **Online Bayesian Context-Tree Switching (CTS) Mixture Coding
+   (`FLAG_BAYES_MIXER = 0x08`)**: Dynamically updates 3-expert posterior weights
+   $\mathbf{w}_t = (w_{t, \text{LLM}}, w_{t, \text{uni}}, w_{t, \text{bi}})$
+   via Vovk's aggregating algorithm and Context-Tree Switching regularization
+   floor $\alpha = 0.03$ (Willems et al., 1995; Vovk, 1990; Veness et al., 2012)
+   with zero side-information bits.
+5. **Completed `.unp` v1 Flag Specification**: Every bit in the 8-bit flag
+   register is now assigned and fully backward-compatible:
+   - `0x01`: Lossless Verified (Bit 0)
+   - `0x02`: Prefix Unigram Cache (Bit 1)
+   - `0x04`: Markov Bigram Cache (Bit 2)
+   - `0x08`: Bayesian CTS Mixture (Bit 3)
+   - `0xF0`: Domain Prior ID (Bits 4–7)
 
 <!-- end of file: unplow/docs/architecture.md -->

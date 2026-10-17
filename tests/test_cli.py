@@ -138,5 +138,19 @@ def test_cli_archive_bigram_help():
     )
     assert result.returncode == 0
     assert "--bigram-mix" in result.stdout
+    assert "--bayes-mix" in result.stdout
+
+
+def test_cli_task_vector_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "task-vector", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--gguf" in result.stdout
+    assert "--layer" in result.stdout
+    assert "--steer" in result.stdout
+    assert "--prompt" in result.stdout
 
 # end of file: unplow/tests/test_cli.py
