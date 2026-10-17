@@ -15,6 +15,7 @@ from pathlib import Path
 import time
 from typing import Any, Dict, Optional
 
+from .eval import evaluate_artifact
 from .forensics import (
     ForensicAuditLogger,
     compute_str_sha256,
@@ -477,6 +478,46 @@ class DecompressionWorker:
                 }
                 result_json = json.dumps(output_dict, indent=2)
                 art_path = self.work_products_dir / f"{task.task_id}_replow.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
+                self.processed_count += 1
+
+            elif task.action in ("eval", "replow_eval"):
+                extra = task.extra or {}
+                artifact_path = task.payload or extra.get("artifact")
+                test_suite_path = extra.get("test_suite")
+                corpus = extra.get("corpus")
+                corpus_texts = None
+                if corpus:
+                    cp = Path(corpus)
+                    if cp.exists():
+                        corpus_texts = [
+                            line.strip() for line in cp.read_text(encoding="utf-8").splitlines() if line.strip()
+                        ]
+                    else:
+                        corpus_texts = [corpus]
+
+                model, tokenizer = None, None
+                mod_path = "none"
+                if artifact_path and (artifact_path.endswith(".unp") or corpus_texts):
+                    from .models import load_causal_lm
+                    tokenizer, model, mod_path = load_causal_lm(model_identifier=self.model_name, device=self.device)
+
+                summary = evaluate_artifact(
+                    artifact_path=artifact_path,
+                    test_suite_path=test_suite_path,
+                    corpus_texts=corpus_texts,
+                    model=model,
+                    tokenizer=tokenizer,
+                    timeout_sec=extra.get("timeout", 3.0),
+                )
+                output_dict = {
+                    "action": "eval",
+                    "model": mod_path,
+                    "summary": summary.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_eval.json"
                 self.file_handler.write_additive_text(art_path, result_json)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
                 self.processed_count += 1

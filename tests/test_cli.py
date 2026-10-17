@@ -213,4 +213,45 @@ def test_cli_replow_mock(tmp_path):
     assert out_unp.exists()
 
 
+def test_cli_eval_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "eval", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--artifact" in result.stdout
+    assert "--test-suite" in result.stdout
+    assert "--corpus" in result.stdout
+
+
+def test_cli_eval_mock(tmp_path):
+    code_file = tmp_path / "mock_solution.py"
+    code_file.write_text("def is_even(n):\n    return n % 2 == 0\n", encoding="utf-8")
+
+    test_file = tmp_path / "mock_tests.py"
+    test_file.write_text(
+        "assert is_even(4) is True\nassert is_even(3) is False\n",
+        encoding="utf-8",
+    )
+
+    out_json = tmp_path / "eval_report.json"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "eval",
+            "--artifact", str(code_file),
+            "--test-suite", str(test_file),
+            "-o", str(out_json),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["overall_status"] == "PASSED"
+    assert data["functional_tests_passed"] == 2
+    assert out_json.exists()
+
+
 # end of file: unplow/tests/test_cli.py

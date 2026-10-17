@@ -283,5 +283,50 @@ print(f"Refactored Code:\n{artifact.refactored_code}")
 print(f"Container Size: {artifact.compressed_size} bytes")
 ```
 
+---
+
+## 11. Phase 9: Replow Evaluation Harness & Perplexity Tracking
+
+Phase 9 introduces the evaluation harness (`src/unplow/eval.py`) to benchmark
+functional correctness against unit assertions and track per-token perplexity
+and cross-entropy shift ($\Delta \mathcal{L}_{\theta}$).
+
+### A. CLI Evaluation
+Run sandboxed unit test assertions and measure cross-entropy loss:
+```bash
+# Evaluate Python script against test suite
+unplow eval \
+  --artifact tests/data/fib_solution.py \
+  --test-suite tests/data/fib_tests.py
+
+# Evaluate compressed .unp container directly
+unplow eval \
+  --artifact workspace/targets/fib_replow.unp \
+  --test-suite tests/data/fib_tests.py
+
+# Evaluate functional tests with perplexity shift over validation corpus
+unplow eval \
+  --artifact tests/data/fib_solution.py \
+  --test-suite tests/data/fib_tests.py \
+  --corpus tests/data/fib_solution.py
+```
+
+### B. Python API Workflow
+```python
+from unplow.eval import (
+    FunctionalCorrectnessRunner,
+    PerplexityTracker,
+    evaluate_artifact,
+    format_summary_table,
+)
+
+summary = evaluate_artifact(
+    artifact_path="tests/data/fib_solution.py",
+    test_suite_path="tests/data/fib_tests.py",
+)
+print(format_summary_table(summary))
+```
+
 <!-- end of file: unplow/docs/decompression_guide.md -->
+
 

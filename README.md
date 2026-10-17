@@ -116,6 +116,14 @@ payload, this problem splits into two distinct mathematical paradigms:
     distillation fine-tuning gradient steps.
   - Direct end-to-end compression into `.unp` containers using the 3-expert
     Bayesian Context-Tree Switching (CTS) mixture arithmetic codec.
+- **Automated Evaluation Harness & Perplexity Tracking (Phase 9 - `eval`)**:
+  - Sandboxed execution (`FunctionalCorrectnessRunner`) isolating refactored
+    code and unit test assertions in separate multiprocessing namespaces.
+  - Per-token cross-entropy loss ($\mathcal{L}_{\theta}$) and perplexity
+    ($\mathcal{P}$) shift tracking over validation corpora before and after
+    local distillation.
+  - Direct evaluation of `.unp` binary containers and `.py` source scripts with
+    formatted ASCII diagnostic reports and structured JSON exports.
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -259,6 +267,14 @@ uv run unplow replow \
   -o workspace/targets/fib.unp
 ```
 
+### 21. Sandboxed Functional Correctness & Perplexity Evaluation (Phase 9)
+
+```bash
+uv run unplow eval \
+  --artifact tests/data/fib_solution.py \
+  --test-suite tests/data/fib_tests.py
+```
+
 ---
 
 ## Testing
@@ -290,6 +306,7 @@ unplow/
 │       ├── conditioning.py  # Domain prior pre-warming & fast PyTorch CDF
 │       ├── container.py     # 18-byte framed .unp binary container
 │       ├── ctw_coder.py     # Online Bayesian CTS mixture arithmetic coding
+│       ├── eval.py          # Sandboxed functional tests & perplexity tracker
 │       ├── forensics.py     # Cryptographic audit ledger & telemetry
 │       ├── gguf_inspector.py# GGUF v2/v3 parser & block dequantizer
 │       ├── mechanistic.py   # Direct layer logit lens inspection

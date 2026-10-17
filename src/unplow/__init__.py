@@ -101,6 +101,15 @@ from .paradigm2 import (
     PRECISION_BITS,
     TOTAL_FREQ,
 )
+from .eval import (
+    FunctionalCorrectnessRunner,
+    FunctionalTestResult,
+    PerplexityReport,
+    PerplexityTracker,
+    ReplowEvaluationSummary,
+    evaluate_artifact,
+    format_summary_table,
+)
 from .queue import (
     FileTaskQueue,
     Task,
@@ -139,7 +148,7 @@ from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -167,6 +176,8 @@ __all__ = [
     "FileTaskQueue",
     "FoldedCircuitTrace",
     "ForensicAuditLogger",
+    "FunctionalCorrectnessRunner",
+    "FunctionalTestResult",
     "GGML_TYPE_F16",
     "GGML_TYPE_F32",
     "GGML_TYPE_Q4_0",
@@ -188,8 +199,11 @@ __all__ = [
     "OnlinePrefixCacheCDF",
     "Order1BigramCacheCDF",
     "PRECISION_BITS",
+    "PerplexityReport",
+    "PerplexityTracker",
     "ReplowArtifact",
     "ReplowEngine",
+    "ReplowEvaluationSummary",
     "SVDSubspaceSteeringEngine",
     "SteeredBasinRecord",
     "SubspaceSteeringRecord",
@@ -198,6 +212,8 @@ __all__ = [
     "SwiGLUCircuitDecompressor",
     "TOTAL_FREQ",
     "Task",
+    "evaluate_artifact",
+    "format_summary_table",
     "TaskStatus",
     "TaskVectorSpectrumReport",
     "TaskVectorSteeredRecord",
