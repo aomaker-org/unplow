@@ -191,5 +191,28 @@ pattern = "*.unp"
     assert trainer.domain_reports["python"]["trainable_params"] > 0
 
 
+def test_incremental_trainer_dynamic_model_extraction(tmp_path):
+    tokenizer, model, _ = load_causal_lm("mock")
+    trainer = IncrementalTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        min_free_pct=0.01,
+        base_checkpoint_dir=str(tmp_path / "checkpoints"),
+        base_target_dir=str(tmp_path / "targets"),
+    )
+
+    # Extract for iteration 1 and iteration 2
+    data_iter1 = trainer.extract_domain_training_data("python", iteration=1)
+    data_iter2 = trainer.extract_domain_training_data("python", iteration=2)
+
+    assert len(data_iter1) == 1
+    assert len(data_iter2) == 1
+    assert len(data_iter1[0]) > 0
+    assert len(data_iter2[0]) > 0
+    # Training data must differ between iterations
+    assert data_iter1[0] != data_iter2[0]
+
+
 # end of file: unplow/tests/test_incremental_pipeline.py
+
 
