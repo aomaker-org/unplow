@@ -73,6 +73,20 @@ payload, this problem splits into two distinct mathematical paradigms:
     side-information bits.
   - Per-token Shannon surprisal attribution ledger quantifying empirical bits
     saved by continuous prefix caching.
+- **GGUF v2/v3 Forensics & Vectorized Dequantizers (Phase 5)**:
+  - Pure-Python `mmap` parser for GGUF headers, metadata, and tensor tables
+    (Gerganov, 2023) operating 100% offline with zero external C++ libraries.
+  - Vectorized NumPy block dequantizers for `F32`, `F16`, `Q8_0`, and `Q4_0`.
+  - Cross-substrate Task-Vector divergence metrics (Ilharco et al., 2023)
+    measuring cosine similarities and top divergent columns against PyTorch.
+- **Multi-Neuron SVD Subspace Steering (Phase 5)**:
+  - Synthesizes Rank-1 principal singular steering vector $\mathbf{u}_1$ across
+    co-selective neuron ensembles (Elhage et al., 2022; Bricken et al., 2023),
+    unlocking polysemantic basins without single-neuron saturation.
+- **Order-1 Markov Bigram Cache Coding (Phase 5)**:
+  - Blends static LLM softmax, Order-0 unigram frequencies, and Order-1 Markov
+    bigram transition probabilities ($P_{\text{bi}}(x_t \mid x_{t-1})$) under
+    `.unp` container header Bit 2 (`FLAG_BIGRAM_CACHE = 0x04`).
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -168,6 +182,25 @@ uv run unplow benchmark --runs 3
 uv run unplow daemon --interval 2.0
 ```
 
+### 14. Inspect GGUF Binary & Compute Task Vector (Phase 5)
+
+```bash
+uv run unplow gguf-inspect /home/fekerr/ai_models/qwen2-1.5b.gguf --compare 16
+```
+
+### 15. Multi-Neuron SVD Subspace Steering (Phase 5)
+
+```bash
+uv run unplow subspace-steer --layer 16 --neurons 467,468,469 --gain 4.0
+```
+
+### 16. Pack Container with Order-1 Markov Bigram Cache (Phase 5)
+
+```bash
+uv run unplow archive \
+  --text "Lossless bigram test." --bigram-mix -o test_bg.unp
+```
+
 ---
 
 ## Testing
@@ -198,6 +231,7 @@ unplow/
 │       ├── conditioning.py  # Domain prior pre-warming & fast PyTorch CDF
 │       ├── container.py     # 18-byte framed .unp binary container
 │       ├── forensics.py     # Cryptographic audit ledger & telemetry
+│       ├── gguf_inspector.py# GGUF v2/v3 parser & block dequantizer
 │       ├── mechanistic.py   # Direct layer logit lens inspection
 │       ├── models.py        # Local model locator & deterministic mocks
 │       ├── paradigm1.py     # Lossy static weight decompressor
@@ -205,6 +239,7 @@ unplow/
 │       ├── queue.py         # Atomic POSIX file-locked queue
 │       ├── safety.py        # Air-gap enforcer & additive file safety
 │       ├── steering.py      # RMSNorm-folded lens & activation steering
+│       ├── subspace_coder.py# SVD subspace steering & Markov bigram cache
 │       └── worker.py        # Decompression worker daemon
 ├── models/
 │   ├── configs/             # Model configurations
@@ -244,13 +279,26 @@ unplow/
   Kolmogorov complexity, and the Hutter Prize.
 - **Jorma Rissanen (1976) & Ian Witten, Radford Neal, John Cleary (1987):**
   Arithmetic coding with fixed-point integer registers.
+- **John Cleary & Ian Witten (1984):** *Data Compression Using Adaptive Coding
+  and Partial String Matching (PPM)* (IEEE Trans. Commun.).
+- **Frans Willems, Yuri Shtarkov, & Tjalling Tjalkens (1995):**
+  *The Context-Tree Weighting Method: Basic Properties*
+  (IEEE Trans. Inf. Theory).
 - **Roland Kuhn & Renato De Mori (1990):** *A Cache-Based Natural Language Model
   for Speech Recognition* (IEEE TPAMI).
 - **Nicholas Carlini et al. (2021):** *Extracting Training Data from Large
   Language Models* (USENIX Security 2021).
 - **Fabrice Bellard (2019-2021):** `NNCP` and `ts_zip` neural compressors.
+- **Tim Dettmers et al. (2022):** *LLM.int8(): 8-bit Matrix Multiplication
+  for Transformers at Scale* (NeurIPS 2022).
 - **Kevin Meng et al. (2022) & Alex Turner et al. (2023):** Locating and
   editing facts (ROME) & activation addition / steering vectors.
+- **Nelson Elhage et al. (2022) & Trenton Bricken et al. (2023):** *Toy Models
+  of Superposition* & *Towards Monosemanticity* (Anthropic).
+- **Gabriel Ilharco et al. (2023):** *Editing Models with Task Arithmetic*
+  (ICLR 2023).
+- **Georgi Gerganov (2023):** *The GGUF File Format Specification*
+  (`ggml.ai`).
 - **Guy Dar, Mor Geva, Ankit Gupta, & Jonathan Berant (2023):** *Analyzing
   Transformers in Embedding Space* (ACL 2023).
 - **Edouard Grave, Armand Joulin, & Nicolas Usunier (2017):** *Improving Neural

@@ -6,7 +6,8 @@ PYTHON := uv run python
 PYTEST := uv run pytest
 
 .PHONY: help venv install test test-cov lint status models inspect circuits steer
-.PHONY: profile probe compress decompress archive unarchive manifold benchmark daemon view watch sync clean
+.PHONY: profile probe compress decompress archive unarchive manifold benchmark
+.PHONY: gguf-inspect subspace-steer daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -65,6 +66,12 @@ steer:
 
 profile:
 	uv run unplow profile --text "unplow_token unplow_token lossless cache mixture verification."
+
+gguf-inspect:
+	uv run unplow gguf-inspect /home/fekerr/ai_models/qwen2-1.5b.gguf
+
+subspace-steer:
+	uv run unplow subspace-steer --layer 16 --neurons 467,468,469 --gain 4.0 --seq-len 32
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32

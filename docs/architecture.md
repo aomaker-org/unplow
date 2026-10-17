@@ -168,4 +168,31 @@ mixture arithmetic coding:
    $-\log_2 P(x_t \mid x_{<t})$ across sequence trajectories to attribute
    empirical entropy gains from continuous prefix caching.
 
+---
+
+## 9. GGUF Forensics, SVD Subspace Steering & Markov Bigram Cache
+
+Phase 5 unlocks multi-substrate forensics and higher-order sequence modeling:
+
+1. **Pure-Python GGUF v2/v3 Binary Inspector**: Parses GGUF container headers,
+   metadata key-value tables, and tensor catalogs directly via `mmap` and
+   `struct` (Gerganov, 2023) with zero external C++ dependencies.
+2. **Vectorized Block Dequantizers**: Implements direct NumPy dequantization for
+   `F32`, `F16`, `Q8_0` (fp16 scale + 32 int8 quants), and `Q4_0` (fp16 scale
+   + 16 packed nibble bytes) block-quantized formats (Dettmers et al., 2022).
+3. **Cross-Substrate Task-Vector Forensics**: Computes cosine similarities,
+   relative Frobenius divergence, and identifies top divergent neuron columns
+   between quantized GGUF weights and active PyTorch layers (Ilharco et al.,
+   2023).
+4. **Multi-Neuron SVD Subspace Steering**: Computes the first principal left
+   singular vector $\mathbf{u}_1$ across co-selective neuron ensembles in MLP
+   `down_proj` via SVD, steering generation along polysemantic subspaces
+   without individual neuron saturation (Elhage et al., 2022; Bricken et al.,
+   2023).
+5. **Order-1 Markov Bigram Cache Mixture (`FLAG_BIGRAM_CACHE = 0x04`)**:
+   Blends static LLM probabilities, Order-0 unigram frequencies, and dynamic
+   Order-1 bigram transition probabilities $P_{\text{bi}}(x_t \mid x_{t-1})$
+   (Cleary & Witten, 1984; Willems et al., 1995) to slash bitrates for
+   recurrent multi-token identifiers in lockstep between encoder and decoder.
+
 <!-- end of file: unplow/docs/architecture.md -->

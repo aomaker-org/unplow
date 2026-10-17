@@ -105,6 +105,13 @@ def main() -> None:
         action="store_true",
         help="Enable online prefix-cache mixture coding",
     )
+    p_comp.add_argument(
+        "--bigram-mix",
+        "--bigram-mixture",
+        dest="bigram_mix",
+        action="store_true",
+        help="Enable Order-1 Markov bigram cache mixture coding",
+    )
     p_comp.add_argument("-o", "--output", help="Output binary file path")
 
     # Command: decompress (Paradigm 2)
@@ -121,6 +128,13 @@ def main() -> None:
         dest="cache_mix",
         action="store_true",
         help="Enable online prefix-cache mixture coding",
+    )
+    p_decomp.add_argument(
+        "--bigram-mix",
+        "--bigram-mixture",
+        dest="bigram_mix",
+        action="store_true",
+        help="Enable Order-1 Markov bigram cache mixture coding",
     )
     p_decomp.add_argument("-o", "--output", help="Output file path for reconstructed text")
 
@@ -149,6 +163,13 @@ def main() -> None:
         dest="cache_mix",
         action="store_true",
         help="Enable online prefix-cache mixture arithmetic coding (Bit 1)",
+    )
+    p_arch.add_argument(
+        "--bigram-mix",
+        "--bigram-mixture",
+        dest="bigram_mix",
+        action="store_true",
+        help="Enable Order-1 Markov bigram cache mixture coding (Bit 2)",
     )
 
     # Command: steer (Phase 4 Activation Steering)
@@ -189,6 +210,59 @@ def main() -> None:
         help="Prefix cache mixture weight (default: 0.08)",
     )
     p_prof.add_argument("-o", "--output", help="Output JSON path for surprisal profile")
+
+    # Command: gguf-inspect (Phase 5 GGUF v2/v3 Binary Inspector & Task-Vector Forensics)
+    p_gguf = subparsers.add_parser(
+        "gguf-inspect",
+        aliases=["gguf"],
+        help="Parse GGUF v2/v3 header, dequantize tensors, and compute task vectors",
+    )
+    p_gguf.add_argument("path", help="Path to .gguf model file")
+    p_gguf.add_argument(
+        "--compare",
+        "--compare-layer",
+        dest="compare_layer",
+        type=int,
+        default=None,
+        help="Transformer layer index to compare with reference model",
+    )
+    p_gguf.add_argument(
+        "--tensor",
+        default=None,
+        help="Specific GGUF tensor name to inspect/compare",
+    )
+    p_gguf.add_argument(
+        "-m", "--model", default="auto", help="Model name or local snapshot path for reference comparison"
+    )
+    p_gguf.add_argument("-o", "--output", help="Output JSON path for GGUF summary or delta report")
+
+    # Command: subspace-steer (Phase 5 Multi-Neuron SVD Subspace Steering)
+    p_sub = subparsers.add_parser(
+        "subspace-steer",
+        aliases=["subspace"],
+        help="Multi-neuron SVD principal subspace steering (Elhage et al., 2022)",
+    )
+    p_sub.add_argument("--layer", type=int, required=True, help="Layer index to steer")
+    p_sub.add_argument(
+        "--neurons",
+        type=str,
+        required=True,
+        help="Comma-separated neuron indices (e.g., '467,468,469')",
+    )
+    p_sub.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_sub.add_argument("--gain", type=float, default=5.0, help="Steering impulse gain (default: 5.0)")
+    p_sub.add_argument("--prompt", default="/* ", help="Seed prompt (default: '/* ')")
+    p_sub.add_argument("--seq-len", type=int, default=48, help="Sequence length to generate (default: 48)")
+    p_sub.add_argument("--steps", type=int, default=16, help="Number of forward passes to steer (default: 16)")
+    p_sub.add_argument(
+        "--temp",
+        "--temperature",
+        dest="temperature",
+        type=float,
+        default=0.25,
+        help="Sampling temperature (default: 0.25)",
+    )
+    p_sub.add_argument("-o", "--output", help="Output JSON path for subspace record")
 
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
@@ -439,6 +513,98 @@ def main() -> None:
                 json.dump(report.to_dict(), f, indent=2)
             print(f"\n[+] Exported surprisal report to {out_p}")
 
+    elif args.command in ("gguf-inspect", "gguf"):
+        from .gguf_inspector import GGUFBinaryInspector
+        from .models import load_causal_lm
+        import torch
+
+        print(f"[*] Parsing GGUF binary container: {args.path}...")
+        inspector = GGUFBinaryInspector(args.path)
+        summary = inspector.parse_header()
+        arch = summary.metadata.get("general.architecture", "unknown")
+        print("\n=== GGUF Container Header Summary ===")
+        print(f"File Path         : {summary.file_path}")
+        print(f"File Size         : {summary.file_size_bytes / (1024 * 1024):.2f} MB")
+        print(f"GGUF Version      : v{summary.version}")
+        print(f"Architecture      : {arch}")
+        print(f"Tensor Count      : {summary.tensor_count}")
+        print(f"Metadata Key-Vals : {summary.metadata_kv_count}")
+        print(f"Alignment         : {summary.alignment} bytes")
+        print(f"Data Offset       : {summary.data_offset} bytes")
+
+        delta_report = None
+        if args.compare_layer is not None:
+            layer_idx = args.compare_layer
+            tensor_name = args.tensor or f"blk.{layer_idx}.ffn_down.weight"
+            print(f"\n[*] Comparing GGUF tensor '{tensor_name}' with reference model (layer {layer_idx})...")
+            _, model, _ = load_causal_lm(model_identifier=args.model, device="cpu", dtype=torch.float32)
+            ref_tensor = model.model.layers[layer_idx].mlp.down_proj.weight
+            delta_report = inspector.compare_with_reference_tensor(
+                gguf_tensor_name=tensor_name,
+                ref_tensor=ref_tensor,
+                top_k_cols=5,
+            )
+            print("\n=== Cross-Substrate Task-Vector Delta Report ===")
+            print(f"GGUF Tensor       : {delta_report.gguf_tensor_name} ({delta_report.ggml_type_name})")
+            print(f"Tensor Shape      : {delta_report.shape}")
+            print(f"GGUF L2 Norm      : {delta_report.gguf_l2_norm:.4f}")
+            print(f"Ref PyTorch Norm  : {delta_report.ref_l2_norm:.4f}")
+            print(f"Cosine Similarity : {delta_report.cosine_similarity:.6f}")
+            print(f"Relative Frobenius: {delta_report.relative_frobenius_delta:.6f}")
+            print(f"Top Divergent Cols: {delta_report.top_divergent_columns}")
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            export_data = delta_report.to_dict() if delta_report is not None else summary.to_dict()
+            with open(out_p, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, indent=2)
+            print(f"\n[+] Exported report to {out_p}")
+
+    elif args.command in ("subspace-steer", "subspace"):
+        from .models import load_causal_lm
+        from .subspace_coder import SVDSubspaceSteeringEngine
+        import torch
+
+        neuron_list = [int(x.strip()) for x in args.neurons.split(",") if x.strip()]
+        if not neuron_list:
+            print("[-] Error: No neuron indices provided in --neurons.", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"[*] Loading model for SVD Subspace Steering: {args.model}...")
+        tokenizer, model, _ = load_causal_lm(model_identifier=args.model, dtype=torch.float32)
+        engine = SVDSubspaceSteeringEngine(model, tokenizer)
+
+        print(f"[*] Steering Layer {args.layer} along principal subspace of neurons {neuron_list} "
+              f"(gain: {args.gain}, steps: {args.steps}, seq_len: {args.seq_len})...")
+        rec = engine.steer_with_subspace(
+            layer_idx=args.layer,
+            neuron_indices=neuron_list,
+            seed_prompt=args.prompt,
+            seq_len=args.seq_len,
+            steering_gain=args.gain,
+            steering_steps=args.steps,
+            temperature=args.temperature,
+        )
+
+        print("\n=== Multi-Neuron SVD Subspace Steering Basin ===")
+        print(f"Target Layer      : Layer {rec.layer_idx}")
+        print(f"Neuron Ensemble   : {rec.neuron_indices}")
+        print(f"SV Energy Ratio   : {rec.singular_value_ratio:.4f}")
+        print(f"Steering Gain     : {rec.steering_gain}")
+        print(f"Model Loss (CE)   : {rec.model_bpb:.3f} bpb")
+        print(f"zlib Compression  : {rec.zlib_bpb:.3f} bpb")
+        print(f"Memorization Score: {rec.memorization_score:.3f}x")
+        print("\n--- Extracted Subspace Basin Text ---")
+        print(rec.extracted_text)
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_p, "w", encoding="utf-8") as f:
+                json.dump(rec.to_dict(), f, indent=2)
+            print(f"\n[+] Exported subspace steering record to {out_p}")
+
     elif args.command in ("archive", "pack"):
         text = args.text
         if args.file:
@@ -456,8 +622,10 @@ def main() -> None:
 
         domain_choice = "auto" if getattr(args, "auto_domain", False) else (args.domain or 0)
         cache_mix = getattr(args, "cache_mix", False)
+        bigram_mix = getattr(args, "bigram_mix", False)
         print(f"[*] Packing into .unp container using model: {args.model} "
-              f"(domain: {domain_choice}, max_ctx: {args.max_ctx_len}, cache_mix: {cache_mix})...")
+              f"(domain: {domain_choice}, max_ctx: {args.max_ctx_len}, "
+              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         container_bytes, meta, stats = codec.compress_to_container(
             text=text,
@@ -465,6 +633,7 @@ def main() -> None:
             verify_hash=True,
             domain_id=domain_choice,
             enable_cache_mixture=cache_mix,
+            enable_bigram_cache=bigram_mix,
         )
 
         out_path = Path(args.output) if args.output else Path(f"{args.file or 'payload'}.unp")
@@ -472,13 +641,19 @@ def main() -> None:
         out_path.write_bytes(container_bytes)
 
         dom_name = DOMAIN_PRIORS.get(meta.domain_id, ("unknown", ""))[0]
+        cache_mode = "DISABLED"
+        if meta.bigram_cache:
+            cache_mode = "BIGRAM (Bit 2)"
+        elif meta.cache_mixture:
+            cache_mode = "UNIGRAM (Bit 1)"
+
         print("\n=== .unp Binary Archive Created ===")
         print(f"Destination       : {out_path} ({len(container_bytes)} bytes)")
         print(f"Original Text     : {stats.original_bytes} bytes ({stats.num_tokens} tokens)")
         print(f"Bits per Byte     : {stats.bits_per_byte} bpb")
         print(f"Compression Ratio : {stats.compression_ratio}:1 ({stats.savings_percent}% reduction)")
         print(f"Domain Prior      : ID {meta.domain_id} ({dom_name})")
-        print(f"Cache Mixture     : {'ENABLED (Bit 1)' if meta.cache_mixture else 'DISABLED'}")
+        print(f"Cache Mixture     : {cache_mode}")
         print(f"Header SHA256 Pre : {meta.sha256_prefix_hex}")
 
     elif args.command in ("unarchive", "unpack"):
@@ -495,12 +670,18 @@ def main() -> None:
         elapsed = time.time() - t0
 
         dom_name = DOMAIN_PRIORS.get(meta.domain_id, ("unknown", ""))[0]
+        cache_mode = "DISABLED"
+        if meta.bigram_cache:
+            cache_mode = "BIGRAM (Bit 2)"
+        elif meta.cache_mixture:
+            cache_mode = "UNIGRAM (Bit 1)"
+
         print(f"\n=== .unp Archive Decompression Verified ===")
         print(f"Tokens Decoded    : {meta.num_tokens} tokens in {elapsed:.2f}s "
               f"({meta.num_tokens / max(elapsed, 0.001):.1f} tok/s)")
         print(f"Context Stride    : {meta.max_ctx_len}")
         print(f"Domain Prior      : ID {meta.domain_id} ({dom_name})")
-        print(f"Cache Mixture     : {'ENABLED (Bit 1)' if meta.cache_mixture else 'DISABLED'}")
+        print(f"Cache Mixture     : {cache_mode}")
         print(f"SHA-256 Checksum  : {'VERIFIED MATCH' if is_valid else 'CHECKSUM MISMATCH'}")
 
         if args.output:
@@ -524,10 +705,15 @@ def main() -> None:
             sys.exit(1)
 
         cache_mix = getattr(args, "cache_mix", False)
-        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, cache_mix: {cache_mix})...")
+        bigram_mix = getattr(args, "bigram_mix", False)
+        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, "
+              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         payload, n_tokens, stats = codec.compress(
-            text, max_ctx_len=args.max_ctx_len, enable_cache_mixture=cache_mix
+            text,
+            max_ctx_len=args.max_ctx_len,
+            enable_cache_mixture=cache_mix,
+            enable_bigram_cache=bigram_mix,
         )
 
         print("\n=== [Paradigm 2] Lossless Arithmetic Compression Results ===")
@@ -553,8 +739,10 @@ def main() -> None:
             sys.exit(1)
 
         cache_mix = getattr(args, "cache_mix", False)
+        bigram_mix = getattr(args, "bigram_mix", False)
         payload_bytes = payload_p.read_bytes()
-        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, cache_mix: {cache_mix})...")
+        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, "
+              f"cache_mix: {cache_mix}, bigram_mix: {bigram_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         print(f"[*] Decompressing {len(payload_bytes)} bytes into {args.tokens} tokens...")
         t0 = time.time()
@@ -563,6 +751,7 @@ def main() -> None:
             num_tokens=args.tokens,
             max_ctx_len=args.max_ctx_len,
             enable_cache_mixture=cache_mix,
+            enable_bigram_cache=bigram_mix,
         )
         elapsed = time.time() - t0
 

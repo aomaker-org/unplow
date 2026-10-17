@@ -142,4 +142,35 @@ softmax probabilities with an online empirical unigram prefix cache:
 3. Per-Token Shannon Surprisal Profiler: `unplow profile` computes per-token
    information content $-\log_2 P$ to quantify exact compression gains.
 
+---
+
+## 7. GGUF Forensics, Subspace Steering & Bigram Coding (Phase 5)
+
+Phase 5 introduces multi-model substrate analysis and ensemble subspace
+steering:
+
+### A. Zero-Dependency GGUF Binary Inspection & Task Vectors
+1. Memory-Mapped Parser: Reads GGUF v2 and v3 headers, metadata, and tensor
+   tables with zero external C++ dependencies via `unplow gguf-inspect <path>`.
+2. Vectorized Dequantizers: Converts quantized `Q8_0`, `Q4_0`, `F16`, and `F32`
+   blocks directly to NumPy float32 arrays on demand.
+3. Cross-Substrate Task Vectors:
+   `unplow gguf-inspect <gguf_path> --compare 16`
+   Computes cosine similarity, relative Frobenius delta, and discovers top
+   divergent neuron columns between GGUF weights and PyTorch layers.
+
+### B. Multi-Neuron SVD Subspace Steering
+1. Ensembles of co-activating neurons are projected onto their Rank-1
+   principal left singular vector $\mathbf{u}_1$:
+   `unplow subspace-steer --layer 16 --neurons 467,468,469 --gain 4.0`
+2. Bypasses single-neuron saturation to unlock complex, polysemantic training
+   basins across MLP hidden spaces.
+
+### C. Order-1 Markov Bigram Cache Mixture
+1. Blends dynamic bigram transitions $P_{\text{bi}}(x_t \mid x_{t-1})$ with
+   unigram and LLM probabilities:
+   `unplow archive --text "payload" --bigram-mix -o payload.unp`
+2. Activated via container header Bit 2 (`FLAG_BIGRAM_CACHE = 0x04`),
+   dramatically compressing repeated multi-token phrases and identifiers.
+
 <!-- end of file: unplow/docs/decompression_guide.md -->

@@ -187,6 +187,7 @@ class DecompressionWorker:
                 max_ctx = task.extra.get("max_ctx_len", 512)
                 domain_id = task.extra.get("domain_id", 0)
                 cache_mix = task.extra.get("cache_mixture", task.extra.get("cache_mix", False))
+                bigram_mix = task.extra.get("bigram_mixture", task.extra.get("bigram_mix", False))
                 codec = self.get_p2_codec()
                 container_bytes, meta, stats = codec.compress_to_container(
                     text,
@@ -194,6 +195,7 @@ class DecompressionWorker:
                     verify_hash=True,
                     domain_id=domain_id,
                     enable_cache_mixture=cache_mix,
+                    enable_bigram_cache=bigram_mix,
                 )
                 b64_container = base64.b64encode(container_bytes).decode("ascii")
 
@@ -315,6 +317,71 @@ class DecompressionWorker:
                 art_path = self.work_products_dir / f"{task.task_id}_unpacked.txt"
                 self.file_handler.write_additive_text(art_path, reconstructed)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=codec.model_path)
+                self.processed_count += 1
+
+            elif action in ("gguf", "gguf_inspect", "gguf-inspect"):
+                from .gguf_inspector import GGUFBinaryInspector
+                gguf_path = task.payload or task.extra.get("path", "")
+                inspector = GGUFBinaryInspector(gguf_path)
+                summary = inspector.parse_header()
+                compare_layer = task.extra.get("compare_layer", None)
+                delta_report = None
+                if compare_layer is not None:
+                    import torch
+                    from .models import load_causal_lm
+                    _, mod, _ = load_causal_lm(
+                        model_identifier=self.model_name, device="cpu", dtype=torch.float32
+                    )
+                    tensor_name = task.extra.get("tensor", f"blk.{compare_layer}.ffn_down.weight")
+                    ref_tensor = mod.model.layers[compare_layer].mlp.down_proj.weight
+                    delta_report = inspector.compare_with_reference_tensor(
+                        gguf_tensor_name=tensor_name,
+                        ref_tensor=ref_tensor,
+                        top_k_cols=task.extra.get("top_k", 5),
+                    )
+
+                output_dict = {
+                    "action": "gguf_inspect",
+                    "summary": summary.to_dict(),
+                    "delta_report": delta_report.to_dict() if delta_report is not None else None,
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_gguf.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=str(gguf_path))
+                self.processed_count += 1
+
+            elif action in ("subspace", "subspace_steer", "subspace-steer"):
+                import torch
+                from .models import load_causal_lm
+                from .subspace_coder import SVDSubspaceSteeringEngine
+                tok, mod, mod_path = load_causal_lm(model_identifier=self.model_name, dtype=torch.float32)
+                engine = SVDSubspaceSteeringEngine(mod, tok)
+                layer_idx = task.extra.get("layer", 0)
+                neurons = task.extra.get("neurons", [0, 1])
+                prompt = task.extra.get("prompt", "/* ")
+                seq_len = task.extra.get("seq_len", 48)
+                gain = task.extra.get("gain", 5.0)
+                steps = task.extra.get("steps", 16)
+                temp = task.extra.get("temperature", 0.25)
+                rec = engine.steer_with_subspace(
+                    layer_idx=layer_idx,
+                    neuron_indices=neurons,
+                    seed_prompt=prompt,
+                    seq_len=seq_len,
+                    steering_gain=gain,
+                    steering_steps=steps,
+                    temperature=temp,
+                )
+                output_dict = {
+                    "action": "subspace_steer",
+                    "model": mod_path,
+                    "record": rec.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_subspace.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
                 self.processed_count += 1
 
             else:

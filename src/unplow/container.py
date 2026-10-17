@@ -29,6 +29,7 @@ UNP_MAGIC = b"UNPLOW"
 UNP_VERSION = 1
 FLAG_LOSSLESS_VERIFIED = 0x01
 FLAG_CACHE_MIXTURE = 0x02
+FLAG_BIGRAM_CACHE = 0x04
 FLAG_MANIFOLD_SEED = 0x00
 
 
@@ -58,6 +59,15 @@ class UnpArchiveMetadata:
         return self.cache_mixture
 
     @property
+    def bigram_cache(self) -> bool:
+        """Bit 2: True if Order-1 Markov bigram cache mixture CDF is enabled."""
+        return bool(self.flags & FLAG_BIGRAM_CACHE)
+
+    @property
+    def is_bigram_cache_enabled(self) -> bool:
+        return self.bigram_cache
+
+    @property
     def domain_id(self) -> int:
         """4-bit domain conditioning prior ID (0..15) stored in upper nibble."""
         return (self.flags >> 4) & 0x0F
@@ -67,6 +77,8 @@ class UnpArchiveMetadata:
         d["domain_id"] = self.domain_id
         d["cache_mixture"] = self.cache_mixture
         d["is_cache_mixture_enabled"] = self.is_cache_mixture_enabled
+        d["bigram_cache"] = self.bigram_cache
+        d["is_bigram_cache_enabled"] = self.is_bigram_cache_enabled
         return d
 
 
@@ -111,10 +123,17 @@ def pack_unp_container(
     domain_id: int = 0,
     enable_cache_mixture: bool = False,
     use_cache_mixture: Optional[bool] = None,
+    enable_bigram_cache: bool = False,
+    use_bigram_cache: Optional[bool] = None,
+    bigram_cache: Optional[bool] = None,
 ) -> bytes:
     """Pack raw arithmetic bitstream into an 18-byte framed .unp container."""
     if use_cache_mixture is not None:
         enable_cache_mixture = use_cache_mixture
+    if use_bigram_cache is not None:
+        enable_bigram_cache = use_bigram_cache
+    if bigram_cache is not None:
+        enable_bigram_cache = bigram_cache
 
     if plaintext is not None and verify_hash:
         digest_prefix = hashlib.sha256(plaintext.encode("utf-8")).digest()[:4]
@@ -125,6 +144,8 @@ def pack_unp_container(
 
     if enable_cache_mixture:
         low_nibble |= FLAG_CACHE_MIXTURE
+    if enable_bigram_cache:
+        low_nibble |= FLAG_BIGRAM_CACHE
 
     flags = ((domain_id & 0x0F) << 4) | (low_nibble & 0x0F)
 
