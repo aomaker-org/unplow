@@ -438,4 +438,15 @@ def test_cli_visualize_execution(tmp_path):
     assert out_dash.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_cli_web_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "web", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--host" in result.stdout
+    assert "--port" in result.stdout
+
+
 # end of file: unplow/tests/test_cli.py

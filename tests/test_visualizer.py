@@ -16,6 +16,7 @@ from unplow.visualizer import (
     colormap_diverging,
     colormap_inferno,
     encode_png_rgb,
+    read_png_metadata,
     render_checkpoint_dashboard,
     render_delta_heatmap,
     render_tensor_heatmap,
@@ -107,6 +108,72 @@ def test_render_checkpoint_dashboard(tmp_path: Path):
     data = res.read_bytes()
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(data) > 100
+
+
+def test_png_text_metadata_roundtrip():
+    width = 8
+    height = 8
+    rgb_data = bytes([100, 150, 200] * (width * height))
+    meta_in = {
+        "Title": "Test Comparison",
+        "CheckpointTarget": "target_rev024.pt",
+        "CheckpointCompare": "baseline_rev023.pt",
+        "Software": "unplow v0.17.0",
+    }
+    png_bytes = encode_png_rgb(width, height, rgb_data, text_metadata=meta_in)
+    meta_out = read_png_metadata(png_bytes)
+
+    assert meta_out["Title"] == "Test Comparison"
+    assert meta_out["CheckpointTarget"] == "target_rev024.pt"
+    assert meta_out["CheckpointCompare"] == "baseline_rev023.pt"
+    assert meta_out["Software"] == "unplow v0.17.0"
+
+
+def test_draw_text_and_rect_rgb():
+    from unplow.visualizer import draw_rect_rgb, draw_text_rgb
+
+    w, h = 60, 20
+    pixels = bytearray(w * h * 3)
+    draw_rect_rgb(pixels, w, h, 0, 0, w, h, (10, 20, 30))
+    # Check rect color
+    assert (pixels[0], pixels[1], pixels[2]) == (10, 20, 30)
+
+    # Draw text
+    end_x = draw_text_rgb(pixels, w, h, "REV24", 2, 2, (255, 255, 255), scale=1)
+    assert end_x > 2
+    # Verify at least one pixel changed to white
+    white_found = False
+    for i in range(0, len(pixels), 3):
+        if (pixels[i], pixels[i + 1], pixels[i + 2]) == (255, 255, 255):
+            white_found = True
+            break
+    assert white_found is True
+
+
+def test_render_delta_with_banner_and_metadata(tmp_path: Path):
+    from unplow.visualizer import read_png_metadata
+
+    out_file = tmp_path / "delta_banner.png"
+    t1 = torch.zeros(16, 16)
+    t2 = torch.ones(16, 16) * 0.12
+
+    res = render_delta_heatmap(
+        t1,
+        t2,
+        out_file,
+        target_size=(16, 16),
+        checkpoint_target="target_model.pt",
+        checkpoint_compare="compare_model.pt",
+        tensor_name="q_proj.weight",
+        include_banner=True,
+    )
+
+    assert res.exists()
+    meta = read_png_metadata(res)
+    assert meta["CheckpointTarget"] == "target_model.pt"
+    assert meta["CheckpointCompare"] == "compare_model.pt"
+    assert meta["TensorName"] == "q_proj.weight"
+    assert "Metrics" in meta
 
 
 # end of file: unplow/tests/test_visualizer.py

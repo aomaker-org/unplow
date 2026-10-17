@@ -119,7 +119,8 @@ till-train-rust:
 	uv run unplow till-train --domain rust --corpus workspace/till_corpus/rust/ -o workspace/targets/till_rust.unp
 
 till-train-gencode:
-	uv run unplow till-train --domain gencode --corpus workspace/till_corpus/gencode/ -o workspace/targets/till_gencode.unp
+	uv run unplow till-train --domain gencode --corpus workspace/till_corpus/gencode/ \
+		-o workspace/targets/till_gencode.unp
 
 till-train-all: till-train till-train-c till-train-cpp till-train-rust till-train-gencode
 
@@ -142,6 +143,11 @@ c = ['uv', 'run', 'unplow', 'visualize', pts[-1], '--compare', pts[-2], '--dashb
 if len(pts) >= 2 else ['uv', 'run', 'unplow', 'visualize', pts[-1], '-o', target] if pts \
 else ['echo', '[-] No checkpoints found'];\
 sys.exit(subprocess.run(c).returncode)"
+
+web:
+	uv run unplow web --port 8765
+
+ui: web
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
