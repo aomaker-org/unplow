@@ -15,6 +15,7 @@ from pathlib import Path
 import time
 from typing import Any, Dict, Optional
 
+from .bundler import WorkspaceBundler
 from .eval import evaluate_artifact
 from .forensics import (
     ForensicAuditLogger,
@@ -518,6 +519,60 @@ class DecompressionWorker:
                 }
                 result_json = json.dumps(output_dict, indent=2)
                 art_path = self.work_products_dir / f"{task.task_id}_eval.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
+                self.processed_count += 1
+
+            elif task.action == "bundle":
+                extra = task.extra or {}
+                source_dir = task.payload or extra.get("source")
+                output_unp = extra.get("output") or str(self.work_products_dir / f"{task.task_id}_bundle.unp")
+                domain_id = int(extra.get("domain_id", 2))
+
+                tokenizer, model, mod_path = None, None, "mock"
+                if self.model_name and self.model_name != "mock":
+                    from .models import load_causal_lm
+                    tokenizer, model, mod_path = load_causal_lm(model_identifier=self.model_name, device=self.device)
+
+                bundler = WorkspaceBundler(model=model, tokenizer=tokenizer, model_name=self.model_name)
+                report = bundler.bundle_directory(
+                    source_dir=source_dir,
+                    output_unp_path=output_unp,
+                    domain_id=domain_id,
+                )
+                output_dict = {
+                    "action": "bundle",
+                    "model": mod_path,
+                    "report": report.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_bundle.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
+                self.processed_count += 1
+
+            elif task.action == "unbundle":
+                extra = task.extra or {}
+                archive_path = task.payload or extra.get("archive")
+                target_dir = extra.get("output") or str(self.work_products_dir / f"{task.task_id}_unbundled")
+
+                tokenizer, model, mod_path = None, None, "mock"
+                if self.model_name and self.model_name != "mock":
+                    from .models import load_causal_lm
+                    tokenizer, model, mod_path = load_causal_lm(model_identifier=self.model_name, device=self.device)
+
+                bundler = WorkspaceBundler(model=model, tokenizer=tokenizer, model_name=self.model_name)
+                report = bundler.unbundle_archive(
+                    archive_path=archive_path,
+                    target_dir=target_dir,
+                )
+                output_dict = {
+                    "action": "unbundle",
+                    "model": mod_path,
+                    "report": report.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_unbundle.json"
                 self.file_handler.write_additive_text(art_path, result_json)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
                 self.processed_count += 1

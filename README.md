@@ -124,6 +124,13 @@ payload, this problem splits into two distinct mathematical paradigms:
     local distillation.
   - Direct evaluation of `.unp` binary containers and `.py` source scripts with
     formatted ASCII diagnostic reports and structured JSON exports.
+- **Hierarchical Workspace Bundler (Phase 10 - `bundler`)**:
+  - Recursive packaging of multi-file directory structures (sources, configs,
+    assets) into a single self-contained `.unp` container.
+  - 3-expert Bayesian Context-Tree Switching arithmetic compression
+    (`FLAG_BAYES_MIXER = 0x08`) maximizing cross-file pattern compression.
+  - Strict per-file cryptographic SHA-256 integrity verification during lossless
+    unbundling and workspace restoration.
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -275,6 +282,16 @@ uv run unplow eval \
   --test-suite tests/data/fib_tests.py
 ```
 
+### 22. Hierarchical Workspace Bundling & Restoration (Phase 10)
+
+```bash
+# Bundle directory into single .unp container
+uv run unplow bundle src/ -o workspace/targets/src_bundle.unp
+
+# Unbundle archive back with SHA-256 integrity verification
+uv run unplow unbundle workspace/targets/src_bundle.unp -o workspace/restored/
+```
+
 ---
 
 ## Testing
@@ -300,6 +317,7 @@ unplow/
 ├── src/
 │   └── unplow/              # Core LLM decompression package
 │       ├── auditor.py       # Layer-wise internal info & logit lens audit
+│       ├── bundler.py       # Hierarchical workspace bundler & unbundler
 │       ├── cache_coder.py   # Online prefix-cache mixture & surprisal
 │       ├── circuits.py      # Coupled SwiGLU circuits & logit lens
 │       ├── cli.py           # Command-line interface

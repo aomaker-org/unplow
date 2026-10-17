@@ -254,4 +254,51 @@ def test_cli_eval_mock(tmp_path):
     assert out_json.exists()
 
 
+def test_cli_bundle_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "bundle", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "source" in result.stdout
+    assert "--output" in result.stdout
+
+
+def test_cli_bundle_and_unbundle_mock(tmp_path):
+    src_dir = tmp_path / "cli_bundle_src"
+    src_dir.mkdir()
+    (src_dir / "test.py").write_text("x = 42\n", encoding="utf-8")
+
+    bundle_unp = tmp_path / "bundle.unp"
+    res1 = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "bundle",
+            str(src_dir), "-o", str(bundle_unp),
+            "-m", "mock", "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res1.returncode == 0
+    d1 = json.loads(res1.stdout)
+    assert d1["total_files"] == 1
+    assert bundle_unp.exists()
+
+    restore_dir = tmp_path / "restored"
+    res2 = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "unbundle",
+            str(bundle_unp), "-o", str(restore_dir),
+            "-m", "mock", "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res2.returncode == 0
+    d2 = json.loads(res2.stdout)
+    assert d2["total_files"] == 1
+    assert (restore_dir / "test.py").read_text(encoding="utf-8") == "x = 42\n"
+
+
 # end of file: unplow/tests/test_cli.py

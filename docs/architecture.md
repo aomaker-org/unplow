@@ -295,5 +295,28 @@ and cross-entropy tracking before and after distillation:
    losslessly decompressing containers in memory before dispatching test
    assertions and corpus loss evaluation.
 
+---
+
+## 14. Workspace Bundler: Hierarchical Directory Tree Archiving
+
+Phase 10 introduces the Workspace Bundler (`src/unplow/bundler.py`), enabling
+recursive multi-file workspace directory tree packaging and extraction into
+self-verifying, single `.unp` containers:
+
+1. **Recursive Multi-File Packaging (`WorkspaceBundler.bundle_directory`)**:
+   Traverses directory structures recursively, filtering non-essential build
+   artifacts (`.git`, `__pycache__`, `node_modules`, `.venv`), computes per-file
+   cryptographic SHA-256 hashes, and serializes a structured JSON manifest
+   alongside concatenated byte streams.
+2. **Bayesian CTS Mixture Compression**:
+   Encodes multi-file container payloads through the 3-expert Bayesian
+   Context-Tree Switching arithmetic codec (`FLAG_BAYES_MIXER = 0x08`),
+   maximizing cross-file compression density and pattern reuse.
+3. **Lossless Restoration & Integrity Verification (`unbundle_archive`)**:
+   Decodes the `.unp` binary container, parses the JSON manifest, reconstructs
+   the original hierarchical directory structure, and performs strict SHA-256
+   checksum validation on every extracted file before completion.
+
 <!-- end of file: unplow/docs/architecture.md -->
+
 
