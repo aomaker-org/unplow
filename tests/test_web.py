@@ -184,6 +184,16 @@ def test_web_server_endpoints(running_server: str, mock_checkpoints):
         assert tl_data["status"] == "success"
         assert "url" in tl_data
 
+    # 9. GET /api/timelapse/frames
+    target_fn = tl_data["filename"]
+    with urllib.request.urlopen(f"{base_url}/api/timelapse/frames?filename={target_fn}") as resp:
+        assert resp.status == 200
+        frames_data = json.loads(resp.read().decode("utf-8"))
+        assert frames_data["status"] == "success"
+        assert "frames" in frames_data
+        assert len(frames_data["frames"]) > 0
+        assert frames_data["frames"][0].startswith("data:image/png;base64,")
+
 
 def test_generate_timelapse_file():
     res = generate_visualization_file({
