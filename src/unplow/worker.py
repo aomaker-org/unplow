@@ -429,6 +429,29 @@ class DecompressionWorker:
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
                 self.processed_count += 1
 
+            elif action in ("audit", "layer_audit", "layer-audit"):
+                from .auditor import ModelInternalAuditor
+                from .models import load_causal_lm
+
+                prompt = task.payload or task.extra.get("prompt", "def ")
+                top_k = task.extra.get("top_k", 5)
+                tok, mod, mod_path = load_causal_lm(model_identifier=self.model_name)
+                auditor = ModelInternalAuditor(mod, tok)
+                reports = auditor.audit_sequence(prompt, top_k=top_k)
+
+                output_dict = {
+                    "action": "layer_audit",
+                    "model": mod_path,
+                    "prompt": prompt,
+                    "layer_count": len(reports),
+                    "reports": [r.to_dict() for r in reports],
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_audit.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
+                self.processed_count += 1
+
             else:
                 raise ValueError(f"Unknown decompression action '{task.action}'")
 

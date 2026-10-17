@@ -80,6 +80,12 @@ def load_causal_lm(
     return tokenizer, model, target_path
 
 
+def load_local_model(model_identifier: Optional[str] = None) -> Tuple[Any, Any]:
+    """Convenience helper returning (model, tokenizer) from local weights."""
+    tokenizer, model, _ = load_causal_lm(model_identifier=model_identifier)
+    return model, tokenizer
+
+
 def audit_system_models() -> List[Dict[str, Any]]:
     """Scan and return all local LLM artifacts available on the system."""
     models: List[Dict[str, Any]] = []
@@ -240,11 +246,17 @@ class DeterministicMockTokenizer:
 
 
 class MockModelOutput:
-    """Mock container for model logits and past key values."""
+    """Mock container for model logits, past key values, and hidden states."""
 
-    def __init__(self, logits: torch.Tensor, past_key_values: Any = None):
+    def __init__(
+        self,
+        logits: torch.Tensor,
+        past_key_values: Any = None,
+        hidden_states: Any = None,
+    ):
         self.logits = logits
         self.past_key_values = past_key_values
+        self.hidden_states = hidden_states
 
 
 class MockMLP(nn.Module):
@@ -293,8 +305,19 @@ class MockCausalLM(nn.Module):
         input_ids: torch.Tensor,
         past_key_values: Any = None,
         use_cache: bool = True,
+        output_hidden_states: bool = False,
     ) -> MockModelOutput:
         x = self.embed(input_ids)
+        hidden_states = None
+        if output_hidden_states:
+            h_states = [x]
+            curr_h = x
+            for layer in self.model.layers:
+                delta = layer.mlp.down_proj(layer.mlp.up_proj(layer.post_attention_layernorm(curr_h)))
+                curr_h = curr_h + delta
+                h_states.append(curr_h)
+            hidden_states = tuple(h_states)
+
         x = self.model.norm(x)
         logits = self.head(x)
         new_past = past_key_values
@@ -313,7 +336,11 @@ class MockCausalLM(nn.Module):
                     )
                     for k, v in past_key_values
                 )
-        return MockModelOutput(logits=logits, past_key_values=new_past)
+        return MockModelOutput(
+            logits=logits,
+            past_key_values=new_past,
+            hidden_states=hidden_states,
+        )
 
 
 # Aliases for explicit mechanistic unit testing

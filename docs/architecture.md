@@ -229,4 +229,26 @@ GGUF binaries with active Safetensors models:
    - `0x08`: Bayesian CTS Mixture (Bit 3)
    - `0xF0`: Domain Prior ID (Bits 4–7)
 
+---
+
+## 11. Layer-Wise Internal Information Auditor & Convergence Flow
+
+Phase 7 introduces the unified internal representation auditor
+(`src/unplow/auditor.py`) to diagnose how information accumulates and
+compresses across network depth:
+
+1. **Intermediate Logit Lens Unembedding**: Projects intermediate residual
+   stream hidden states $\mathbf{h}_t^{(l)}$ at the final token position
+   through the terminal layer norm and unembedding projection
+   $\text{LogitLens}(\mathbf{h}_t^{(l)}) = W_U \text{Norm}(\mathbf{h}_t^{(l)})$
+   (nostalgebraist, 2020; Geva et al., 2021).
+2. **Layer-Wise Entropy & Probability Profiling**: Computes exact Shannon
+   entropy $H(P^{(l)}) = -\sum_{v} P_v^{(l)} \log_2 P_v^{(l)}$ and top
+   probability mass to measure the progressive collapse of predictive
+   uncertainty across depth.
+3. **Residual & FFN Norm Dynamics**: Tracks residual vector $L_2$ norm growth
+   $\|\mathbf{h}_t^{(l)}\|_2$ and FFN downstream projection scale
+   $\|W_{\text{down}}^{(l)}\|_2$ to isolate computational intensity across
+   shallow, middle, and late layers.
+
 <!-- end of file: unplow/docs/architecture.md -->

@@ -1,6 +1,7 @@
 # Path: unplow/tests/test_cli.py
 """Unit tests for unplow command-line interface argument parsing and commands."""
 
+import json
 import subprocess
 import sys
 import pytest
@@ -152,5 +153,33 @@ def test_cli_task_vector_help():
     assert "--layer" in result.stdout
     assert "--steer" in result.stdout
     assert "--prompt" in result.stdout
+
+
+def test_cli_audit_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "audit", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "prompt" in result.stdout
+    assert "--top-k" in result.stdout
+    assert "--json" in result.stdout
+
+
+def test_cli_audit_execution_mock():
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "audit", "def test():",
+            "-m", "mock", "--json"
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["layer_count"] == 4
+    assert len(data["layers"]) == 4
+
 
 # end of file: unplow/tests/test_cli.py

@@ -209,4 +209,32 @@ unplow unarchive pyproject.unp
 Activated via container Bit 3 (`FLAG_BAYES_MIXER = 0x08`), achieving zero-bit
 adaptation across heterogeneous text structures.
 
+---
+
+## 9. Phase 7: Layer-Wise Internal Information & Surprisal Flow
+
+Phase 7 provides unified depth-wise inspection across all Transformer layers:
+
+### A. Layer-Wise Diagnostic Audit via CLI
+Trace intermediate Logit Lens projections, top predictions, Shannon entropy,
+residual $L_2$ norm growth, and FFN weight norms:
+```bash
+# Run audit and display formatted diagnostic table
+unplow audit "def fibonacci(n):"
+
+# Export structured JSON audit report
+unplow audit "def fibonacci(n):" --json -o workspace/targets/audit.json
+```
+
+### B. Python API Inspection
+```python
+from unplow.models import load_local_model
+from unplow.auditor import ModelInternalAuditor
+
+model, tokenizer = load_local_model()
+auditor = ModelInternalAuditor(model, tokenizer)
+reports = auditor.audit_sequence("def fibonacci(n):", top_k=5)
+print(auditor.format_audit_table(reports, "def fibonacci(n):"))
+```
+
 <!-- end of file: unplow/docs/decompression_guide.md -->
