@@ -29,9 +29,12 @@ import torch
 
 from .till_guard import TillDiskGuardian
 from .visualizer import (
+    compile_images_to_apng,
     compute_tensor_metrics,
+    encode_apng_rgb,
     read_png_metadata,
     render_checkpoint_dashboard,
+    render_checkpoint_timelapse,
     render_delta_heatmap,
     render_tensor_heatmap,
 )
@@ -119,6 +122,14 @@ def get_available_images(search_dirs: Optional[List[Path]] = None) -> List[Dict[
                 except Exception:
                     metrics_data = {}
 
+            is_timelapse = (
+                "TotalFrames" in meta
+                or "FrameCount" in meta
+                or "timelapse" in p.name.lower()
+            )
+            frames_count = int(meta.get("TotalFrames", meta.get("FrameCount", 1)))
+            fps_val = float(meta.get("Fps", 2.0))
+
             found_images.append({
                 "filename": p.name,
                 "path": str(p),
@@ -134,6 +145,9 @@ def get_available_images(search_dirs: Optional[List[Path]] = None) -> List[Dict[
                 "mode": meta.get("Mode", "single"),
                 "metrics": metrics_data,
                 "raw_metadata": meta,
+                "is_timelapse": is_timelapse,
+                "frames_count": frames_count,
+                "fps": fps_val,
             })
 
     found_images.sort(key=lambda x: x["mtime"], reverse=True)
@@ -142,6 +156,84 @@ def get_available_images(search_dirs: Optional[List[Path]] = None) -> List[Dict[
 
 def generate_visualization_file(params: Dict[str, Any]) -> Dict[str, Any]:
     """Executes visualization rendering request and saves PNG with embedded metadata."""
+    mode = params.get("mode", "dashboard")
+    size_dim = int(params.get("size", 512))
+    size = (size_dim, size_dim)
+    include_banner = bool(params.get("include_banner", True))
+
+    out_dir = Path("workspace/visualizations")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    custom_name = params.get("output_filename")
+
+    if mode == "timelapse":
+        domain = params.get("domain", "python").replace("till-", "")
+        if domain == "all" and params.get("checkpoint"):
+            m = re.search(r"till-([a-zA-Z0-9_-]+)-lora", params.get("checkpoint", ""))
+            domain = m.group(1) if m else "python"
+        elif domain == "all":
+            domain = "python"
+
+        timelapse_mode = params.get("timelapse_mode", "delta")
+        fps = float(params.get("fps", 2.0))
+        tensor_req = params.get("tensor")
+        max_revision = params.get("max_revision")
+
+        domain_dir = Path("models") / f"till-{domain}-lora"
+        if not domain_dir.exists():
+            candidates = list(Path(".").glob(f"**/till-{domain}-lora"))
+            if candidates:
+                domain_dir = candidates[0]
+            else:
+                raise FileNotFoundError(f"Checkpoint domain directory 'till-{domain}-lora' not found.")
+
+        all_ckpts = sorted(domain_dir.glob("adapter_model_rev*.pt"))
+        if not all_ckpts:
+            raise FileNotFoundError(f"No checkpoint files found in {domain_dir}")
+
+        if max_revision:
+            try:
+                max_rev_int = int(max_revision)
+                all_ckpts = [
+                    p
+                    for p in all_ckpts
+                    if re.search(r"rev(\d+)", p.name)
+                    and int(re.search(r"rev(\d+)", p.name).group(1)) <= max_rev_int
+                ]
+            except Exception:
+                pass
+
+        custom_name = params.get("output_filename")
+        if custom_name:
+            out_name = custom_name if custom_name.endswith(".png") else f"{custom_name}.png"
+        else:
+            out_name = f"timelapse_{domain}_{timelapse_mode}_{timestamp}.png"
+
+        out_file = out_dir / out_name
+        res = render_checkpoint_timelapse(
+            checkpoint_paths=all_ckpts,
+            output_path=out_file,
+            domain=domain,
+            tensor_name=tensor_req,
+            mode=timelapse_mode,
+            fps=fps,
+            target_size=size,
+            include_banner=include_banner,
+        )
+        meta = read_png_metadata(res)
+        return {
+            "status": "success",
+            "filename": res.name,
+            "path": str(res),
+            "url": f"/images/{res.name}",
+            "size_bytes": res.stat().st_size,
+            "metadata": meta,
+            "metrics": {},
+            "is_timelapse": True,
+            "frames_count": len(all_ckpts),
+            "fps": fps,
+        }
+
     target_path = Path(params.get("checkpoint", ""))
     if not target_path.exists():
         raise FileNotFoundError(f"Target checkpoint not found: {target_path}")
@@ -152,15 +244,6 @@ def generate_visualization_file(params: Dict[str, Any]) -> Dict[str, Any]:
         raise FileNotFoundError(f"Comparison checkpoint not found: {compare_path}")
 
     mode = params.get("mode", "dashboard" if compare_path else "raw")
-    size_dim = int(params.get("size", 512))
-    size = (size_dim, size_dim)
-    include_banner = bool(params.get("include_banner", True))
-
-    out_dir = Path("workspace/visualizations")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    custom_name = params.get("output_filename")
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     t_name = target_path.stem
 
     if custom_name:
@@ -334,14 +417,14 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     transition: border 0.15s;
   }
   select:focus, input:focus { border-color: var(--border-focus); }
-  .mode-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .mode-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .tab-btn {
     background: var(--bg-panel-alt);
     border: 1px solid var(--border-color);
     color: var(--text-muted);
     padding: 8px 4px;
     border-radius: 6px;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
     text-align: center;
@@ -352,6 +435,31 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     border-color: var(--cyan);
     color: var(--cyan);
   }
+  .video-toolbar {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #0f141c;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+  }
+  .scrubber-slider {
+    flex: 1;
+    accent-color: var(--cyan);
+    cursor: pointer;
+  }
+  .playback-btn {
+    background: var(--bg-panel-alt);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .playback-btn:hover { border-color: var(--cyan); color: var(--cyan); }
   .btn-submit {
     background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%);
     color: #ffffff;
@@ -607,7 +715,28 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
         <button class="tab-btn active" data-mode="dashboard" onclick="setMode('dashboard')">Dashboard</button>
         <button class="tab-btn" data-mode="delta" onclick="setMode('delta')">Differential</button>
         <button class="tab-btn" data-mode="raw" onclick="setMode('raw')">Raw Weights</button>
+        <button class="tab-btn" data-mode="timelapse" onclick="setMode('timelapse')">Timelapse</button>
       </div>
+    </div>
+
+    <div class="form-group" id="group-timelapse-type" style="display: none;">
+      <label for="select-timelapse-type">Timelapse Mode</label>
+      <select id="select-timelapse-type" onchange="onTimelapseTypeChange()">
+        <option value="delta" selected>Cumulative Delta (vs rev001)</option>
+        <option value="step">Step-by-Step Delta (vs rev[i-1])</option>
+        <option value="raw">Raw Weight Intensity Heatmap</option>
+        <option value="dashboard">Attention Mosaic Evolution</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="group-timelapse-fps" style="display: none;">
+      <label for="select-timelapse-fps">Video Frame Rate</label>
+      <select id="select-timelapse-fps">
+        <option value="1">1.0 fps (Slow Inspection)</option>
+        <option value="2" selected>2.0 fps (Standard)</option>
+        <option value="5">5.0 fps (Fast Motion)</option>
+        <option value="10">10.0 fps (High Speed)</option>
+      </select>
     </div>
 
     <div class="form-group">
@@ -668,12 +797,30 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
         <button class="tool-btn" onclick="zoomImage(0.2)">+ Zoom In</button>
         <button class="tool-btn" onclick="zoomImage(-0.2)">- Zoom Out</button>
         <button class="tool-btn" onclick="resetZoom()">100%</button>
-        <button class="tool-btn" onclick="downloadActive()">Download PNG</button>
+        <button class="tool-btn" onclick="downloadActive()">Download File</button>
       </div>
+    </div>
+
+    <div class="video-toolbar" id="video-toolbar">
+      <button class="playback-btn" id="btn-play-pause" onclick="togglePlayPause()">⏸ Pause</button>
+      <button class="playback-btn" onclick="stepFrame(-1)">◀ Prev</button>
+      <button class="playback-btn" onclick="stepFrame(1)">▶ Next</button>
+      <input type="range" class="scrubber-slider" id="video-scrubber"
+             min="1" max="1" value="1" oninput="onScrubVideo(this.value)">
+      <span id="video-frame-indicator"
+            style="font-family: monospace; min-width: 90px; color: var(--cyan);">Frame 1 / 1</span>
+      <select id="video-speed-select" onchange="changePlaybackSpeed()" style="padding: 2px 6px; font-size: 0.75rem;">
+        <option value="0.5">0.5x</option>
+        <option value="1.0" selected>1.0x</option>
+        <option value="2.0">2.0x</option>
+        <option value="5.0">5.0x</option>
+      </select>
     </div>
 
     <div class="canvas-stage" id="stage">
       <img id="main-image" src="" alt="Neural Heatmap" style="display: none;">
+      <canvas id="canvas-freeze"
+              style="display: none; max-width: 100%; max-height: 100%; object-fit: contain;"></canvas>
     </div>
 
     <!-- Metadata Pill Bar -->
@@ -733,8 +880,19 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     document.querySelectorAll('.tab-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.mode === mode);
     });
-    document.getElementById('group-compare').style.display = (mode === 'raw') ? 'none' : 'flex';
-    document.getElementById('group-tensor').style.display = (mode === 'dashboard') ? 'none' : 'flex';
+    const isTl = (mode === 'timelapse');
+    document.getElementById('group-compare').style.display = (mode === 'raw' || isTl) ? 'none' : 'flex';
+    document.getElementById('group-timelapse-type').style.display = isTl ? 'flex' : 'none';
+    document.getElementById('group-timelapse-fps').style.display = isTl ? 'flex' : 'none';
+    const tType = document.getElementById('select-timelapse-type').value;
+    const hideTensor = (mode === 'dashboard' || (isTl && tType === 'dashboard'));
+    document.getElementById('group-tensor').style.display = hideTensor ? 'none' : 'flex';
+    document.getElementById('btn-text').textContent = isTl ? 'Generate Timelapse Video' : 'Generate Visualization';
+  }
+
+  function onTimelapseTypeChange() {
+    const tType = document.getElementById('select-timelapse-type').value;
+    document.getElementById('group-tensor').style.display = (tType === 'dashboard') ? 'none' : 'flex';
   }
 
   async function fetchStatus() {
@@ -903,30 +1061,109 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     }
   }
 
+  let isPaused = false;
+
+  function togglePlayPause() {
+    const img = document.getElementById('main-image');
+    const cvs = document.getElementById('canvas-freeze');
+    const btn = document.getElementById('btn-play-pause');
+    if (!isPaused) {
+      cvs.width = img.naturalWidth || 512;
+      cvs.height = img.naturalHeight || 512;
+      const ctx = cvs.getContext('2d');
+      ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
+      img.style.display = 'none';
+      cvs.style.display = 'block';
+      btn.textContent = '▶ Play';
+      isPaused = true;
+    } else {
+      cvs.style.display = 'none';
+      img.style.display = 'block';
+      btn.textContent = '⏸ Pause';
+      isPaused = false;
+    }
+  }
+
+  function stepFrame(delta) {
+    const scrubber = document.getElementById('video-scrubber');
+    const maxVal = parseInt(scrubber.max, 10) || 1;
+    let nextVal = parseInt(scrubber.value, 10) + delta;
+    if (nextVal < 1) nextVal = 1;
+    if (nextVal > maxVal) nextVal = maxVal;
+    scrubber.value = nextVal;
+    onScrubVideo(nextVal);
+  }
+
+  function onScrubVideo(val) {
+    const scrubber = document.getElementById('video-scrubber');
+    const maxVal = parseInt(scrubber.max, 10) || 1;
+    document.getElementById('video-frame-indicator').textContent = `Frame ${val} / ${maxVal}`;
+  }
+
+  function changePlaybackSpeed() {
+    // APNG standard playback rate is baked into frame delay chunks
+  }
+
   function selectActiveImage(imgData) {
     activeImage = imgData;
     const mainImg = document.getElementById('main-image');
     mainImg.src = imgData.url;
     mainImg.style.display = 'block';
+    const cvs = document.getElementById('canvas-freeze');
+    cvs.style.display = 'none';
+    isPaused = false;
+    document.getElementById('btn-play-pause').textContent = '⏸ Pause';
 
     document.querySelectorAll('.gallery-thumb').forEach(t => {
       t.classList.toggle('active', t.title.startsWith(imgData.filename));
     });
 
+    const isTl = (
+      imgData.is_timelapse
+      || (imgData.raw_metadata && (imgData.raw_metadata.TotalFrames || imgData.raw_metadata.FrameCount))
+    );
+    const vToolbar = document.getElementById('video-toolbar');
+    vToolbar.style.display = isTl ? 'flex' : 'none';
+
+    if (isTl) {
+      const fc = (
+        imgData.frames_count
+        || (imgData.raw_metadata && (imgData.raw_metadata.TotalFrames || imgData.raw_metadata.FrameCount))
+        || 32
+      );
+      const scrubber = document.getElementById('video-scrubber');
+      scrubber.max = fc;
+      scrubber.value = 1;
+      document.getElementById('video-frame-indicator').textContent = `Frame 1 / ${fc}`;
+    }
+
     document.getElementById('view-filename').textContent = imgData.filename;
-    document.getElementById('meta-target').textContent = imgData.target || imgData.filename;
-    document.getElementById('meta-compare').textContent = imgData.compare || '(None)';
-    const tensorLabel = imgData.tensor || (imgData.mode === 'dashboard' ? 'Multi-Projection Mosaic' : '-');
+    const finalTarget = (
+      imgData.target
+      || (isTl && imgData.raw_metadata && imgData.raw_metadata.FinalCheckpoint)
+      || imgData.filename
+    );
+    document.getElementById('meta-target').textContent = finalTarget;
+    const initComp = (
+      imgData.compare
+      || (isTl && imgData.raw_metadata && imgData.raw_metadata.InitialCheckpoint)
+      || (isTl ? 'rev001' : '(None)')
+    );
+    document.getElementById('meta-compare').textContent = initComp;
+    const tensorLabel = (
+      imgData.tensor
+      || (isTl ? 'Timelapse Sequence' : (imgData.mode === 'dashboard' ? 'Multi-Projection Mosaic' : '-'))
+    );
     document.getElementById('meta-tensor').textContent = tensorLabel;
 
-    if (imgData.metrics) {
+    if (imgData.metrics && (imgData.metrics.mean_abs !== undefined || imgData.metrics.max_abs !== undefined)) {
       document.getElementById('meta-mean').textContent =
         imgData.metrics.mean_abs !== undefined ? imgData.metrics.mean_abs.toExponential(3) : '-';
       document.getElementById('meta-max').textContent =
         imgData.metrics.max_abs !== undefined ? imgData.metrics.max_abs.toExponential(3) : '-';
     } else {
-      document.getElementById('meta-mean').textContent = '-';
-      document.getElementById('meta-max').textContent = '-';
+      document.getElementById('meta-mean').textContent = isTl ? 'Animated Delta' : '-';
+      document.getElementById('meta-max').textContent = isTl ? `${imgData.fps || 2.0} fps` : '-';
     }
 
     document.getElementById('meta-size').textContent = `${imgData.size_kb} KB`;
@@ -942,12 +1179,16 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
 
     btn.disabled = true;
     spinner.style.display = 'inline-block';
-    btnText.textContent = 'Rendering Neural Heatmap...';
+    const isTl = (currentMode === 'timelapse');
+    btnText.textContent = isTl ? 'Compiling Timelapse Video...' : 'Rendering Neural Heatmap...';
 
     const payload = {
       mode: currentMode,
+      domain: document.getElementById('select-domain').value,
       checkpoint: document.getElementById('select-target').value,
-      compare: currentMode === 'raw' ? null : document.getElementById('select-compare').value,
+      compare: (currentMode === 'raw' || isTl) ? null : document.getElementById('select-compare').value,
+      timelapse_mode: document.getElementById('select-timelapse-type').value,
+      fps: parseFloat(document.getElementById('select-timelapse-fps').value),
       tensor: document.getElementById('select-tensor').value,
       size: parseInt(document.getElementById('select-size').value, 10),
       include_banner: document.getElementById('check-banner').checked,
@@ -970,7 +1211,7 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     } finally {
       btn.disabled = false;
       spinner.style.display = 'none';
-      btnText.textContent = 'Generate Visualization';
+      btnText.textContent = isTl ? 'Generate Timelapse Video' : 'Generate Visualization';
     }
   }
 
@@ -1075,6 +1316,57 @@ class UnplowWebHandler(http.server.BaseHTTPRequestHandler):
             })
             return
 
+        if path == "/api/timelapse":
+            query = urllib.parse.parse_qs(parsed.query)
+            domain = query.get("domain", ["python"])[0].replace("till-", "")
+            mode = query.get("mode", ["delta"])[0]
+            fps = float(query.get("fps", [2.0])[0])
+            tensor_req = query.get("tensor", [None])[0]
+
+            out_dir = Path("workspace/visualizations")
+            matches = sorted(
+                out_dir.glob(f"timelapse_{domain}_{mode}*.png"),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True,
+            )
+            if matches:
+                latest = matches[0]
+                meta = read_png_metadata(latest)
+                self.send_json({
+                    "status": "success",
+                    "filename": latest.name,
+                    "url": f"/images/{latest.name}",
+                    "size_bytes": latest.stat().st_size,
+                    "metadata": meta,
+                })
+                return
+
+            domain_dir = Path("models") / f"till-{domain}-lora"
+            ckpts = sorted(domain_dir.glob("adapter_model_rev*.pt"))
+            if not ckpts:
+                self.send_json({"status": "error", "error": f"No checkpoints found for domain {domain}"}, 404)
+                return
+
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            out_file = out_dir / f"timelapse_{domain}_{mode}_{timestamp}.png"
+            res = render_checkpoint_timelapse(
+                checkpoint_paths=ckpts,
+                output_path=out_file,
+                domain=domain,
+                tensor_name=tensor_req,
+                mode=mode,
+                fps=fps,
+            )
+            meta = read_png_metadata(res)
+            self.send_json({
+                "status": "success",
+                "filename": res.name,
+                "url": f"/images/{res.name}",
+                "size_bytes": res.stat().st_size,
+                "metadata": meta,
+            })
+            return
+
         if path.startswith("/images/"):
             img_name = Path(path).name
             allowed_dirs = [Path("workspace/visualizations"), Path("workspace/targets")]
@@ -1102,7 +1394,7 @@ class UnplowWebHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/api/generate":
+        if parsed.path in ("/api/generate", "/api/timelapse/render"):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
             try:

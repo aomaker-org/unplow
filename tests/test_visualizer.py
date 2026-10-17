@@ -15,9 +15,13 @@ import torch
 from unplow.visualizer import (
     colormap_diverging,
     colormap_inferno,
+    compile_images_to_apng,
+    decode_png_rgb,
+    encode_apng_rgb,
     encode_png_rgb,
     read_png_metadata,
     render_checkpoint_dashboard,
+    render_checkpoint_timelapse,
     render_delta_heatmap,
     render_tensor_heatmap,
 )
@@ -174,6 +178,102 @@ def test_render_delta_with_banner_and_metadata(tmp_path: Path):
     assert meta["CheckpointCompare"] == "compare_model.pt"
     assert meta["TensorName"] == "q_proj.weight"
     assert "Metrics" in meta
+
+
+def test_encode_and_decode_apng_rgb():
+    width = 8
+    height = 8
+    frame1 = (width, height, bytes([255, 0, 0] * (width * height)))
+    frame2 = (width, height, bytes([0, 255, 0] * (width * height)))
+    frame3 = (width, height, bytes([0, 0, 255] * (width * height)))
+
+    meta = {"Title": "Test APNG", "Software": "unplow v0.17.0"}
+    apng_data = encode_apng_rgb([frame1, frame2, frame3], delay_ms=250, loop=0, text_metadata=meta)
+
+    assert apng_data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert b"acTL" in apng_data
+    assert b"fcTL" in apng_data
+    assert b"fdAT" in apng_data
+    assert apng_data.endswith(b"IEND\xaeB`\x82")
+
+    # Metadata extraction
+    parsed_meta = read_png_metadata(apng_data)
+    assert parsed_meta["Title"] == "Test APNG"
+    assert parsed_meta["Software"] == "unplow v0.17.0"
+
+    # Frame 0 decoded by standard PNG decoder
+    w_dec, h_dec, rgb_dec = decode_png_rgb(apng_data)
+    assert (w_dec, h_dec) == (width, height)
+    assert rgb_dec == frame1[2]
+
+
+def test_compile_images_to_apng(tmp_path: Path):
+    w, h = 8, 8
+    img1 = tmp_path / "img1.png"
+    img2 = tmp_path / "img2.png"
+    out_apng = tmp_path / "compiled.png"
+
+    img1.write_bytes(encode_png_rgb(w, h, bytes([10, 20, 30] * (w * h))))
+    img2.write_bytes(encode_png_rgb(w, h, bytes([40, 50, 60] * (w * h))))
+
+    res = compile_images_to_apng([img1, img2], out_apng, fps=2.0)
+    assert res.exists()
+    data = res.read_bytes()
+    assert b"acTL" in data
+    assert b"fcTL" in data
+    meta = read_png_metadata(res)
+    assert meta["FrameCount"] == "2"
+
+
+def test_render_checkpoint_timelapse(tmp_path: Path):
+    chk1 = tmp_path / "adapter_model_rev001.pt"
+    chk2 = tmp_path / "adapter_model_rev002.pt"
+    chk3 = tmp_path / "adapter_model_rev003.pt"
+    out_timelapse = tmp_path / "timelapse.png"
+
+    base_state = {
+        "model.layers.0.mlp.gate_proj.weight": torch.randn(16, 16),
+        "model.layers.0.mlp.up_proj.weight": torch.randn(16, 16),
+        "model.layers.0.mlp.down_proj.weight": torch.randn(16, 16),
+    }
+    torch.save(base_state, chk1)
+
+    state2 = {k: v + 0.05 for k, v in base_state.items()}
+    torch.save(state2, chk2)
+
+    state3 = {k: v + 0.10 for k, v in base_state.items()}
+    torch.save(state3, chk3)
+
+    # Test delta mode
+    res_delta = render_checkpoint_timelapse(
+        checkpoint_paths=[chk1, chk2, chk3],
+        output_path=out_timelapse,
+        domain="test",
+        mode="delta",
+        fps=2.0,
+        target_size=(16, 16),
+        include_banner=True,
+    )
+    assert res_delta.exists()
+    meta_delta = read_png_metadata(res_delta)
+    assert meta_delta["TotalFrames"] == "3"
+    assert meta_delta["Domain"] == "till-test"
+    assert meta_delta["Mode"] == "delta"
+
+    # Test dashboard mode
+    out_dash = tmp_path / "timelapse_dash.png"
+    res_dash = render_checkpoint_timelapse(
+        checkpoint_paths=[chk1, chk2, chk3],
+        output_path=out_dash,
+        domain="test",
+        mode="dashboard",
+        fps=2.0,
+        target_size=(32, 32),
+        include_banner=True,
+    )
+    assert res_dash.exists()
+    meta_dash = read_png_metadata(res_dash)
+    assert meta_dash["Mode"] == "dashboard"
 
 
 # end of file: unplow/tests/test_visualizer.py

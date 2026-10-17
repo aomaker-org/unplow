@@ -15,6 +15,9 @@ Provides interactive, queued, forensic auditing, and inference benchmarking subc
   - enqueue     : Add asynchronous decompression task to atomic file queue
   - daemon      : Run background worker polling loop with verbose telemetry
   - forensics   : Inspect cryptographic audit journal and execution traces
+  - visualize   : Render model weight heatmaps and update deltas as PNGs
+  - web         : Launch interactive browser front end for visualizer
+  - video       : Compile animated timelapse video of checkpoint weight evolutions
 """
 
 import argparse
@@ -504,6 +507,55 @@ def main() -> None:
         "--open",
         action="store_true",
         help="Automatically open browser to web studio on launch",
+    )
+
+    # Command: video (Checkpoint Evolution Timelapse Video)
+    p_vid = subparsers.add_parser(
+        "video",
+        aliases=["timelapse"],
+        help="Compile animated timelapse video of checkpoint weight evolutions across revisions",
+    )
+    p_vid.add_argument(
+        "--domain",
+        default="python",
+        help="Language domain to render (python, c, cpp, rust, gencode; default: python)",
+    )
+    p_vid.add_argument(
+        "--mode",
+        choices=["delta", "step", "raw", "dashboard"],
+        default="delta",
+        help="Timelapse mode (delta, step, raw, dashboard; default: delta)",
+    )
+    p_vid.add_argument(
+        "--tensor",
+        help="Specific tensor name or substring to render",
+    )
+    p_vid.add_argument(
+        "--fps",
+        type=float,
+        default=2.0,
+        help="Playback frame rate in frames per second (default: 2.0)",
+    )
+    p_vid.add_argument(
+        "--size",
+        type=int,
+        default=512,
+        help="Render square resolution dimension (default: 512)",
+    )
+    p_vid.add_argument(
+        "-i",
+        "--input-dir",
+        help="Optional directory of existing PNG files to compile into an animated video",
+    )
+    p_vid.add_argument(
+        "-o",
+        "--output",
+        help="Output APNG video path (default: workspace/visualizations/timelapse_<domain>_<mode>.png)",
+    )
+    p_vid.add_argument(
+        "--no-banner",
+        action="store_true",
+        help="Omit visual comparison header banner on generated frames",
     )
 
     # Command: unarchive (Paradigm 2 .unp Container)
@@ -1241,6 +1293,61 @@ def main() -> None:
         from unplow.web import run_web_server
 
         run_web_server(host=args.host, port=args.port, open_browser=args.open)
+
+    elif args.command in ("video", "timelapse"):
+        from unplow.visualizer import compile_images_to_apng, render_checkpoint_timelapse
+
+        fps = float(getattr(args, "fps", 2.0))
+        include_banner = not getattr(args, "no_banner", False)
+        size_dim = int(getattr(args, "size", 512))
+        size = (size_dim, size_dim)
+
+        if getattr(args, "input_dir", None):
+            in_dir = Path(args.input_dir)
+            if not in_dir.exists():
+                print(f"[-] Error: Input directory '{args.input_dir}' not found.", file=sys.stderr)
+                sys.exit(1)
+            png_files = sorted(in_dir.glob("*.png"))
+            if not png_files:
+                print(f"[-] Error: No PNG files found in '{args.input_dir}'.", file=sys.stderr)
+                sys.exit(1)
+            out_path = Path(args.output or in_dir / "compiled_timelapse.png")
+            print(f"[*] Compiling {len(png_files)} PNG images into APNG: {out_path} at {fps:.1f} fps...")
+            res = compile_images_to_apng(png_files, out_path, fps=fps)
+            print(f"[+] Timelapse video compiled successfully: {res} ({res.stat().st_size} bytes)")
+        else:
+            domain = getattr(args, "domain", "python").replace("till-", "")
+            domain_dir = Path("models") / f"till-{domain}-lora"
+            if not domain_dir.exists():
+                candidates = list(Path(".").glob(f"**/till-{domain}-lora"))
+                if candidates:
+                    domain_dir = candidates[0]
+                else:
+                    print(f"[-] Error: Checkpoint directory for domain '{domain}' not found.", file=sys.stderr)
+                    sys.exit(1)
+
+            checkpoints = sorted(domain_dir.glob("adapter_model_rev*.pt"))
+            if not checkpoints:
+                print(f"[-] Error: No checkpoints found in '{domain_dir}'.", file=sys.stderr)
+                sys.exit(1)
+
+            mode = getattr(args, "mode", "delta")
+            out_dir = Path("workspace/visualizations")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = Path(args.output or out_dir / f"timelapse_{domain}_{mode}.png")
+
+            print(f"[*] Compiling {len(checkpoints)} checkpoints for till-{domain} [{mode} mode] -> {out_path}...")
+            res = render_checkpoint_timelapse(
+                checkpoint_paths=checkpoints,
+                output_path=out_path,
+                domain=domain,
+                tensor_name=getattr(args, "tensor", None),
+                mode=mode,
+                fps=fps,
+                target_size=size,
+                include_banner=include_banner,
+            )
+            print(f"[+] Timelapse video rendered successfully: {res} ({res.stat().st_size} bytes)")
 
     elif args.command in ("archive", "pack"):
         text = args.text

@@ -449,4 +449,44 @@ def test_cli_web_help():
     assert "--port" in result.stdout
 
 
+def test_cli_video_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "video", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--domain" in result.stdout
+    assert "--mode" in result.stdout
+    assert "--fps" in result.stdout
+    assert "--input-dir" in result.stdout
+
+
+def test_cli_video_execution(tmp_path):
+    from unplow.visualizer import encode_png_rgb
+
+    w, h = 16, 16
+    in_dir = tmp_path / "images"
+    in_dir.mkdir()
+    img1 = in_dir / "frame1.png"
+    img2 = in_dir / "frame2.png"
+    out_apng = tmp_path / "cli_timelapse.png"
+
+    img1.write_bytes(encode_png_rgb(w, h, bytes([255, 0, 0] * (w * h))))
+    img2.write_bytes(encode_png_rgb(w, h, bytes([0, 255, 0] * (w * h))))
+
+    res = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "video",
+            "-i", str(in_dir), "-o", str(out_apng), "--fps", "2.0",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0
+    assert out_apng.exists()
+    assert out_apng.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert b"acTL" in out_apng.read_bytes()
+
+
 # end of file: unplow/tests/test_cli.py

@@ -10,6 +10,7 @@ font visual banners for air-gapped comparison traceability.
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import struct
 from typing import Any, Dict, List, Optional, Tuple, Union
 import zlib
@@ -171,6 +172,14 @@ def draw_rect_rgb(
             pixels[idx + 2] = color[2]
 
 
+def make_png_chunk(tag: bytes, data: bytes) -> bytes:
+    """Builds a standard PNG chunk with 4-byte length, tag, data, and 4-byte CRC."""
+    length_bytes = struct.pack(">I", len(data))
+    crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+    crc_bytes = struct.pack(">I", crc)
+    return length_bytes + tag + data + crc_bytes
+
+
 def encode_png_rgb(
     width: int,
     height: int,
@@ -182,16 +191,9 @@ def encode_png_rgb(
     Supports embedding standard PNG tEXt chunks for provenance tracking
     without external dependencies (Directive 18 compliant).
     """
-
-    def _chunk(tag: bytes, data: bytes) -> bytes:
-        length_bytes = struct.pack(">I", len(data))
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        crc_bytes = struct.pack(">I", crc)
-        return length_bytes + tag + data + crc_bytes
-
     header = b"\x89PNG\r\n\x1a\n"
     # IHDR: width, height, 8 bit-depth, color type 2 (RGB), defl, filter, no interlace
-    ihdr = _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    ihdr = make_png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
 
     # Standard tEXt metadata chunks
     text_chunks = b""
@@ -200,15 +202,15 @@ def encode_png_rgb(
             k_bytes = str(k).encode("latin-1")[:79]
             v_bytes = str(v).encode("utf-8")
             chunk_data = k_bytes + b"\x00" + v_bytes
-            text_chunks += _chunk(b"tEXt", chunk_data)
+            text_chunks += make_png_chunk(b"tEXt", chunk_data)
 
     # Scanline: prepend filter byte 0x00 to each row
     raw_scanlines = b"".join(
         b"\x00" + rgb_bytes[y * width * 3 : (y + 1) * width * 3]
         for y in range(height)
     )
-    idat = _chunk(b"IDAT", zlib.compress(raw_scanlines, level=6))
-    iend = _chunk(b"IEND", b"")
+    idat = make_png_chunk(b"IDAT", zlib.compress(raw_scanlines, level=6))
+    iend = make_png_chunk(b"IEND", b"")
     return header + ihdr + text_chunks + idat + iend
 
 
@@ -587,6 +589,418 @@ def render_checkpoint_dashboard(
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(png_bytes)
+    return out
+
+
+def encode_apng_rgb(
+    frames: List[Tuple[int, int, bytes]],
+    delay_ms: int = 500,
+    loop: int = 0,
+    text_metadata: Optional[Dict[str, str]] = None,
+) -> bytes:
+    """Encodes a sequence of RGB frames into an Animated PNG (APNG) stream.
+
+    Zero-dependency standard-library implementation compliant with RFC 7689.
+    Supported natively by all modern browsers and viewers without ffmpeg.
+    """
+    if not frames:
+        raise ValueError("Frames list cannot be empty for APNG encoding.")
+
+    w, h, _ = frames[0]
+    num_frames = len(frames)
+
+    header = b"\x89PNG\r\n\x1a\n"
+    # IHDR: width, height, 8 bit-depth, color type 2 (RGB), defl, filter, no interlace
+    ihdr = make_png_chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+
+    # acTL: num_frames (4 bytes), num_plays (4 bytes, 0 = infinite loop)
+    actl = make_png_chunk(b"acTL", struct.pack(">II", num_frames, loop))
+
+    # Standard tEXt metadata chunks
+    text_chunks = b""
+    if text_metadata:
+        for k, v in text_metadata.items():
+            k_bytes = str(k).encode("latin-1")[:79]
+            v_bytes = str(v).encode("utf-8")
+            chunk_data = k_bytes + b"\x00" + v_bytes
+            text_chunks += make_png_chunk(b"tEXt", chunk_data)
+
+    delay_num = max(1, int(delay_ms))
+    delay_den = 1000
+
+    chunks: List[bytes] = [header, ihdr, actl, text_chunks]
+
+    seq_number = 0
+    for idx, (frame_w, frame_h, frame_rgb) in enumerate(frames):
+        scanlines = b"".join(
+            b"\x00" + frame_rgb[y * frame_w * 3 : (y + 1) * frame_w * 3]
+            for y in range(frame_h)
+        )
+        compressed = zlib.compress(scanlines, level=6)
+
+        # fcTL chunk: >IIIIIHHBB (26 bytes)
+        # sequence_number, width, height, x_offset, y_offset, delay_num, delay_den, dispose_op, blend_op
+        fctl_data = struct.pack(
+            ">IIIIIHHBB",
+            seq_number,
+            frame_w,
+            frame_h,
+            0,
+            0,
+            delay_num,
+            delay_den,
+            0,  # APNG_DISPOSE_OP_NONE
+            0,  # APNG_BLEND_OP_SOURCE
+        )
+        chunks.append(make_png_chunk(b"fcTL", fctl_data))
+        seq_number += 1
+
+        if idx == 0:
+            chunks.append(make_png_chunk(b"IDAT", compressed))
+        else:
+            fdat_payload = struct.pack(">I", seq_number) + compressed
+            chunks.append(make_png_chunk(b"fdAT", fdat_payload))
+            seq_number += 1
+
+    chunks.append(make_png_chunk(b"IEND", b""))
+    return b"".join(chunks)
+
+
+def decode_png_rgb(png_bytes: bytes) -> Tuple[int, int, bytes]:
+    """Decodes standard RGB or RGBA PNG binary bytes into raw RGB pixel buffer."""
+    if not png_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("Invalid PNG signature.")
+
+    offset = 8
+    width = height = color_type = bit_depth = 0
+    idat_parts: List[bytes] = []
+
+    while offset + 8 <= len(png_bytes):
+        length = struct.unpack(">I", png_bytes[offset : offset + 4])[0]
+        tag = png_bytes[offset + 4 : offset + 8]
+        data = png_bytes[offset + 8 : offset + 8 + length]
+        offset += 12 + length
+
+        if tag == b"IHDR":
+            width, height, bit_depth, color_type, _, _, _ = struct.unpack(">IIBBBBB", data)
+        elif tag == b"IDAT":
+            idat_parts.append(data)
+        elif tag == b"IEND":
+            break
+
+    if not idat_parts or width == 0 or height == 0:
+        raise ValueError("Incomplete PNG data or missing IDAT.")
+
+    raw = zlib.decompress(b"".join(idat_parts))
+    bpp = 3 if color_type == 2 else 4
+    stride = 1 + width * bpp
+    rgb = bytearray(width * height * 3)
+    prev_row = bytearray(width * bpp)
+
+    for y in range(height):
+        filter_type = raw[y * stride]
+        curr_raw = raw[y * stride + 1 : (y + 1) * stride]
+        curr_row = bytearray(width * bpp)
+        for i in range(len(curr_raw)):
+            x = curr_raw[i]
+            a = curr_row[i - bpp] if i >= bpp else 0
+            b = prev_row[i]
+            c = prev_row[i - bpp] if i >= bpp else 0
+            if filter_type == 0:
+                val = x
+            elif filter_type == 1:
+                val = (x + a) & 0xFF
+            elif filter_type == 2:
+                val = (x + b) & 0xFF
+            elif filter_type == 3:
+                val = (x + (a + b) // 2) & 0xFF
+            elif filter_type == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                val = (x + pr) & 0xFF
+            else:
+                val = x
+            curr_row[i] = val
+        prev_row = curr_row
+
+        if color_type == 2:
+            rgb[y * width * 3 : (y + 1) * width * 3] = curr_row
+        elif color_type == 6:
+            for x_idx in range(width):
+                rgb[(y * width + x_idx) * 3 : (y * width + x_idx) * 3 + 3] = curr_row[
+                    x_idx * 4 : x_idx * 4 + 3
+                ]
+
+    return width, height, bytes(rgb)
+
+
+def compile_images_to_apng(
+    image_paths: List[Union[str, Path]],
+    output_path: Union[str, Path],
+    fps: float = 2.0,
+    loop: int = 0,
+    text_metadata: Optional[Dict[str, str]] = None,
+) -> Path:
+    """Stitches an existing series of PNG image files into an animated APNG file."""
+    if not image_paths:
+        raise ValueError("Image paths list cannot be empty.")
+
+    frames: List[Tuple[int, int, bytes]] = []
+    base_w, base_h = 0, 0
+
+    for idx, p in enumerate(image_paths):
+        path = Path(p)
+        if not path.exists():
+            continue
+        w, h, rgb = decode_png_rgb(path.read_bytes())
+        if not frames:
+            base_w, base_h = w, h
+            frames.append((w, h, rgb))
+        else:
+            if (w, h) == (base_w, base_h):
+                frames.append((w, h, rgb))
+            else:
+                t = torch.frombuffer(rgb, dtype=torch.uint8).float().view(h, w, 3)
+                t = t.permute(2, 0, 1).unsqueeze(0)
+                resampled = torch.nn.functional.interpolate(
+                    t, size=(base_h, base_w), mode="bilinear", align_corners=False
+                ).squeeze(0).permute(1, 2, 0).byte()
+                frames.append((base_w, base_h, bytes(resampled.contiguous().view(-1).tolist())))
+
+    if not frames:
+        raise ValueError("No valid PNG images could be loaded from provided paths.")
+
+    delay_ms = max(50, int(1000.0 / max(0.1, fps)))
+    meta = text_metadata or {}
+    meta.setdefault("Title", "Unplow Image Sequence Timelapse")
+    meta.setdefault("FrameCount", str(len(frames)))
+    meta.setdefault("Fps", f"{fps:.1f}")
+    meta.setdefault("CreatedAt", datetime.now(timezone.utc).isoformat())
+    meta.setdefault("Software", "unplow v0.17.0")
+
+    apng_bytes = encode_apng_rgb(frames, delay_ms=delay_ms, loop=loop, text_metadata=meta)
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(apng_bytes)
+    return out
+
+
+def select_model_tensor(
+    state_dict: Dict[str, torch.Tensor],
+    tensor_name: Optional[str] = None,
+) -> Tuple[str, torch.Tensor]:
+    """Selects target tensor by explicit match or heuristic fallback."""
+    if tensor_name and tensor_name in state_dict:
+        return tensor_name, state_dict[tensor_name]
+
+    if tensor_name:
+        for k in state_dict:
+            if tensor_name.lower() in k.lower():
+                return k, state_dict[k]
+
+    for sub in ["q_proj", "gate_proj", "up_proj", "down_proj", "k_proj", "v_proj", "o_proj"]:
+        for k, v in state_dict.items():
+            if sub in k and "weight" in k and v.ndim >= 2:
+                return k, v
+
+    for k, v in state_dict.items():
+        if "weight" in k and v.ndim >= 2:
+            return k, v
+
+    k = next(iter(state_dict.keys()))
+    return k, state_dict[k]
+
+
+def pool_tensor_2d(tensor: torch.Tensor, target_size: Tuple[int, int]) -> torch.Tensor:
+    """Downsamples any 1D/2D/ND tensor to a target 2D spatial grid via adaptive pooling."""
+    t = tensor.detach().cpu().float()
+    if t.ndim == 1:
+        dim = int(t.numel() ** 0.5)
+        if dim * dim == t.numel():
+            t = t.view(dim, dim)
+        else:
+            t = t.unsqueeze(0).repeat(32, 1)
+    elif t.ndim > 2:
+        t = t.view(t.shape[0], -1)
+    pool = torch.nn.AdaptiveAvgPool2d(target_size)
+    return pool(t.unsqueeze(0).unsqueeze(0)).squeeze(0).squeeze(0)
+
+
+def render_checkpoint_timelapse(
+    checkpoint_paths: List[Union[str, Path]],
+    output_path: Union[str, Path],
+    domain: str = "python",
+    tensor_name: Optional[str] = None,
+    mode: str = "delta",
+    fps: float = 2.0,
+    target_size: Tuple[int, int] = (512, 512),
+    include_banner: bool = True,
+) -> Path:
+    """Compiles a chronological sequence of model checkpoints into an APNG video.
+
+    Modes:
+      - 'delta'     : Differential update relative to initial checkpoint (rev001).
+      - 'step'      : Differential update relative to immediate predecessor (rev[i-1]).
+      - 'raw'       : Absolute weight intensity heatmap using inferno colormap.
+      - 'dashboard' : 4-quadrant attention mosaic comparing current revision vs rev001.
+    """
+    if not checkpoint_paths:
+        raise ValueError("checkpoint_paths cannot be empty.")
+
+    def _extract_rev(p: Union[str, Path]) -> int:
+        m = re.search(r"rev(\d+)", Path(p).name)
+        return int(m.group(1)) if m else 0
+
+    sorted_paths = sorted([Path(p) for p in checkpoint_paths], key=_extract_rev)
+    total_frames = len(sorted_paths)
+
+    w_base = torch.load(sorted_paths[0], map_location="cpu", weights_only=False)
+    resolved_key, _ = select_model_tensor(w_base, tensor_name)
+
+    w_prev = w_base
+    frames: List[Tuple[int, int, bytes]] = []
+
+    banner_h = 38 if include_banner else 0
+    w_dim, h_dim = target_size
+    total_h = h_dim + banner_h
+
+    for idx, p in enumerate(sorted_paths):
+        curr_name = p.name
+        rev_num = _extract_rev(p)
+        w_curr = torch.load(p, map_location="cpu", weights_only=False)
+
+        pixels = bytearray(total_h * w_dim * 3)
+
+        if mode == "dashboard":
+            panel_size = (w_dim // 2, h_dim // 2)
+            _, t_q_base = select_model_tensor(w_base, "q_proj")
+            _, t_q_curr = select_model_tensor(w_curr, "q_proj")
+            _, t_k_base = select_model_tensor(w_base, "k_proj")
+            _, t_k_curr = select_model_tensor(w_curr, "k_proj")
+            _, t_o_base = select_model_tensor(w_base, "o_proj")
+            _, t_o_curr = select_model_tensor(w_curr, "o_proj")
+
+            p1 = pool_tensor_2d(t_q_curr, panel_size).numpy()
+            p1_norm = (p1 - p1.min()) / max(p1.max() - p1.min(), 1e-8)
+
+            diff_q = (pool_tensor_2d(t_q_curr, panel_size) - pool_tensor_2d(t_q_base, panel_size)).numpy()
+            p2_norm = diff_q / max(abs(float(diff_q.min())), abs(float(diff_q.max())), 1e-8)
+
+            diff_k = (pool_tensor_2d(t_k_curr, panel_size) - pool_tensor_2d(t_k_base, panel_size)).numpy()
+            p3_norm = diff_k / max(abs(float(diff_k.min())), abs(float(diff_k.max())), 1e-8)
+
+            diff_o = (pool_tensor_2d(t_o_curr, panel_size) - pool_tensor_2d(t_o_base, panel_size)).numpy()
+            p4_norm = diff_o / max(abs(float(diff_o.min())), abs(float(diff_o.max())), 1e-8)
+
+            half_w, half_h = panel_size
+            for y in range(h_dim):
+                py = y + banner_h
+                for x in range(w_dim):
+                    if x in (0, half_w - 1, half_w, w_dim - 1) or y in (0, half_h - 1, half_h, h_dim - 1):
+                        rgb = (50, 55, 68)
+                    elif x < half_w and y < half_h:
+                        rgb = colormap_inferno(p1_norm[y, x])
+                    elif x >= half_w and y < half_h:
+                        rgb = colormap_diverging(p2_norm[y, x - half_w])
+                    elif x < half_w and y >= half_h:
+                        rgb = colormap_diverging(p3_norm[y - half_h, x])
+                    else:
+                        rgb = colormap_diverging(p4_norm[y - half_h, x - half_w])
+
+                    p_idx = (py * w_dim + x) * 3
+                    pixels[p_idx] = rgb[0]
+                    pixels[p_idx + 1] = rgb[1]
+                    pixels[p_idx + 2] = rgb[2]
+
+            diff_metrics = compute_tensor_metrics(
+                pool_tensor_2d(t_q_curr, panel_size) - pool_tensor_2d(t_q_base, panel_size)
+            )
+
+        elif mode in ("delta", "step"):
+            ref_dict = w_base if mode == "delta" else w_prev
+            _, t_ref = select_model_tensor(ref_dict, tensor_name)
+            curr_tensor_key, t_curr = select_model_tensor(w_curr, tensor_name)
+
+            p_ref = pool_tensor_2d(t_ref, target_size)
+            p_curr = pool_tensor_2d(t_curr, target_size)
+            diff = p_curr - p_ref
+
+            downsampled = diff.numpy()
+            max_abs = max(abs(float(downsampled.min())), abs(float(downsampled.max())), 1e-8)
+            norm = downsampled / max_abs
+
+            for y in range(h_dim):
+                py = y + banner_h
+                for x in range(w_dim):
+                    rgb = colormap_diverging(norm[y, x])
+                    p_idx = (py * w_dim + x) * 3
+                    pixels[p_idx] = rgb[0]
+                    pixels[p_idx + 1] = rgb[1]
+                    pixels[p_idx + 2] = rgb[2]
+
+            diff_metrics = compute_tensor_metrics(diff)
+            resolved_key = curr_tensor_key
+
+        else:  # raw mode
+            curr_tensor_key, t_curr = select_model_tensor(w_curr, tensor_name)
+            p_curr = pool_tensor_2d(t_curr, target_size)
+            downsampled = p_curr.numpy()
+            min_v, max_v = float(downsampled.min()), float(downsampled.max())
+            span = max(max_v - min_v, 1e-8)
+            norm = (downsampled - min_v) / span
+
+            for y in range(h_dim):
+                py = y + banner_h
+                for x in range(w_dim):
+                    rgb = colormap_inferno(norm[y, x])
+                    p_idx = (py * w_dim + x) * 3
+                    pixels[p_idx] = rgb[0]
+                    pixels[p_idx + 1] = rgb[1]
+                    pixels[p_idx + 2] = rgb[2]
+
+            diff_metrics = compute_tensor_metrics(p_curr)
+            resolved_key = curr_tensor_key
+
+        # Header banner
+        if include_banner:
+            draw_rect_rgb(pixels, w_dim, total_h, 0, 0, w_dim, banner_h, (14, 17, 24))
+            draw_rect_rgb(pixels, w_dim, total_h, 0, banner_h - 1, w_dim, banner_h, (0, 180, 220))
+            line1 = f"TIMELAPSE: till-{domain} | FRAME {idx + 1}/{total_frames} (rev{rev_num:03d})"
+            short_k = resolved_key.split(".")[-2] if "." in resolved_key else resolved_key
+            if mode == "dashboard":
+                line2 = f"MOSAIC: W_Q | dW_Q | dW_K | dW_O vs rev001 | MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
+            elif mode == "delta":
+                line2 = f"DELTA vs rev001 | TENSOR: {short_k} | MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
+            elif mode == "step":
+                line2 = f"STEP DELTA | TENSOR: {short_k} | MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
+            else:
+                line2 = f"RAW WEIGHTS (Inferno) | TENSOR: {short_k} | L2: {diff_metrics['l2_norm']:.2e}"
+
+            draw_text_rgb(pixels, w_dim, total_h, line1, 8, 6, (0, 210, 255))
+            draw_text_rgb(pixels, w_dim, total_h, line2, 8, 20, (210, 220, 240))
+
+        frames.append((w_dim, total_h, bytes(pixels)))
+        w_prev = w_curr
+
+    delay_ms = max(50, int(1000.0 / max(0.1, fps)))
+    meta = {
+        "Title": "Unplow Neural Checkpoint Evolution Timelapse",
+        "Domain": f"till-{domain}",
+        "Mode": mode,
+        "TensorName": resolved_key,
+        "TotalFrames": str(total_frames),
+        "Fps": f"{fps:.1f}",
+        "InitialCheckpoint": sorted_paths[0].name,
+        "FinalCheckpoint": sorted_paths[-1].name,
+        "CreatedAt": datetime.now(timezone.utc).isoformat(),
+        "Software": "unplow v0.17.0",
+    }
+
+    apng_bytes = encode_apng_rgb(frames, delay_ms=delay_ms, loop=0, text_metadata=meta)
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(apng_bytes)
     return out
 
 

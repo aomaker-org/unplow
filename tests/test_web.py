@@ -177,6 +177,31 @@ def test_web_server_endpoints(running_server: str, mock_checkpoints):
         urllib.request.urlopen(f"{base_url}/nonexistent_route")
     assert exc_info.value.code == 404
 
+    # 8. GET /api/timelapse
+    with urllib.request.urlopen(f"{base_url}/api/timelapse?domain=python&mode=delta") as resp:
+        assert resp.status == 200
+        tl_data = json.loads(resp.read().decode("utf-8"))
+        assert tl_data["status"] == "success"
+        assert "url" in tl_data
+
+
+def test_generate_timelapse_file():
+    res = generate_visualization_file({
+        "mode": "timelapse",
+        "domain": "python",
+        "timelapse_mode": "delta",
+        "fps": 2.0,
+        "size": 32,
+        "include_banner": True,
+        "output_filename": "unit_test_timelapse.png",
+    })
+
+    assert res["status"] == "success"
+    assert res["is_timelapse"] is True
+    p = Path(res["path"])
+    assert p.exists()
+    assert p.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
 
 def test_headless_and_network_helpers():
     from unplow.web import get_headless_status, get_lan_ip_addresses
