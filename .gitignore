@@ -63,6 +63,8 @@ logs/tasks/
 !/workspace/work_products/.gitkeep
 /workspace/targets/*
 !/workspace/targets/.gitkeep
+/workspace/visualizations/*
+!/workspace/visualizations/.gitkeep
 
 # Large language models and binaries (never commit weights/GGUF blobs)
 /models/cache/

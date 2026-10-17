@@ -478,6 +478,33 @@ def main() -> None:
         default=512,
         help="Render square resolution dimension (default: 512)",
     )
+    p_vis.add_argument(
+        "--no-banner",
+        action="store_true",
+        help="Omit visual comparison header banner on PNG output",
+    )
+
+    # Command: web (Interactive Checkpoint & Differential Visualizer Studio)
+    p_web = subparsers.add_parser(
+        "web", aliases=["ui", "studio"], help="Launch interactive browser front end for visualizer"
+    )
+    p_web.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host address to bind HTTP server (default: 127.0.0.1)",
+    )
+    p_web.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        default=8765,
+        help="Port to listen for browser connections (default: 8765)",
+    )
+    p_web.add_argument(
+        "--open",
+        action="store_true",
+        help="Automatically open browser to web studio on launch",
+    )
 
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
@@ -1138,6 +1165,7 @@ def main() -> None:
     elif args.command in ("visualize", "vis"):
         import torch
         from unplow.visualizer import (
+            read_png_metadata,
             render_checkpoint_dashboard,
             render_delta_heatmap,
             render_tensor_heatmap,
@@ -1150,6 +1178,7 @@ def main() -> None:
 
         out_path = Path(args.output)
         size = (args.size, args.size)
+        include_banner = not getattr(args, "no_banner", False)
 
         if args.dashboard:
             if not args.compare:
@@ -1160,7 +1189,7 @@ def main() -> None:
                 print(f"[-] Error: Comparison checkpoint '{args.compare}' not found.", file=sys.stderr)
                 sys.exit(1)
             print(f"[*] Rendering multi-projection dashboard: {chk.name} vs {cmp_chk.name} -> {out_path}...")
-            res = render_checkpoint_dashboard(cmp_chk, chk, out_path, grid_size=size)
+            res = render_checkpoint_dashboard(cmp_chk, chk, out_path, grid_size=size, include_banner=include_banner)
             print(f"[+] Multi-projection dashboard rendered successfully: {res} ({res.stat().st_size} bytes)")
         elif args.compare:
             cmp_chk = Path(args.compare)
@@ -1175,7 +1204,16 @@ def main() -> None:
                 print(f"[-] Error: Tensor '{t_name}' not found in both checkpoints.", file=sys.stderr)
                 sys.exit(1)
             print(f"[*] Rendering delta heatmap for tensor: {t_name} -> {out_path}...")
-            res = render_delta_heatmap(w1[t_name], w2[t_name], out_path, target_size=size)
+            res = render_delta_heatmap(
+                w1[t_name],
+                w2[t_name],
+                out_path,
+                target_size=size,
+                checkpoint_target=chk,
+                checkpoint_compare=cmp_chk,
+                tensor_name=t_name,
+                include_banner=include_banner,
+            )
             print(f"[+] Differential heatmap rendered successfully: {res} ({res.stat().st_size} bytes)")
         else:
             print(f"[*] Loading checkpoint weights: {chk.name}...")
@@ -1185,8 +1223,24 @@ def main() -> None:
                 print(f"[-] Error: Tensor '{t_name}' not found in checkpoint.", file=sys.stderr)
                 sys.exit(1)
             print(f"[*] Rendering tensor heatmap: {t_name} -> {out_path}...")
-            res = render_tensor_heatmap(w[t_name], out_path, target_size=size)
+            res = render_tensor_heatmap(
+                w[t_name],
+                out_path,
+                target_size=size,
+                checkpoint_path=chk,
+                tensor_name=t_name,
+                include_banner=include_banner,
+            )
             print(f"[+] Weight heatmap rendered successfully: {res} ({res.stat().st_size} bytes)")
+
+        meta = read_png_metadata(res)
+        if meta.get("Metrics"):
+            print(f"[*] Embedded Metadata Metrics: {meta.get('Metrics')}")
+
+    elif args.command in ("web", "ui", "studio"):
+        from unplow.web import run_web_server
+
+        run_web_server(host=args.host, port=args.port, open_browser=args.open)
 
     elif args.command in ("archive", "pack"):
         text = args.text
