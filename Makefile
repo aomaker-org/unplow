@@ -8,7 +8,8 @@ PYTEST := uv run pytest
 .PHONY: help venv install test test-cov lint status models inspect circuits steer
 .PHONY: profile probe compress decompress archive unarchive manifold benchmark
 .PHONY: gguf-inspect subspace-steer task-vector audit replow eval bundle
-.PHONY: till-init till-train daemon view watch sync clean
+.PHONY: till-init till-train till-train-c till-train-cpp till-train-rust till-train-gencode till-train-all
+.PHONY: daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -30,6 +31,7 @@ help:
 	@echo "  make bundle     - Hierarchical multi-file directory tree bundling (Phase 10)"
 	@echo "  make till-init  - Initialize disk guard telemetry and stage domain corpora (Phase 11)"
 	@echo "  make till-train - Run till-python distillation and Bayesian CTS archiving (Phase 11)"
+	@echo "  make till-train-all - Train and archive all 5 specialized till-* domains"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -103,6 +105,20 @@ till-init:
 
 till-train:
 	uv run unplow till-train --domain python --corpus workspace/till_corpus/python/ -o workspace/targets/till_python.unp
+
+till-train-c:
+	uv run unplow till-train --domain c --corpus workspace/till_corpus/c/ -o workspace/targets/till_c.unp
+
+till-train-cpp:
+	uv run unplow till-train --domain cpp --corpus workspace/till_corpus/cpp/ -o workspace/targets/till_cpp.unp
+
+till-train-rust:
+	uv run unplow till-train --domain rust --corpus workspace/till_corpus/rust/ -o workspace/targets/till_rust.unp
+
+till-train-gencode:
+	uv run unplow till-train --domain gencode --corpus workspace/till_corpus/gencode/ -o workspace/targets/till_gencode.unp
+
+till-train-all: till-train till-train-c till-train-cpp till-train-rust till-train-gencode
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
