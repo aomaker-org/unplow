@@ -10,12 +10,16 @@ PYTEST := uv run pytest
 .PHONY: gguf-inspect subspace-steer task-vector audit replow eval bundle
 .PHONY: till-init till-train till-train-c till-train-cpp till-train-rust till-train-gencode till-train-all
 .PHONY: till-guard-offload full-pipeline incremental-pipeline daemon view watch sync clean
+.PHONY: visualize web ui video timelapse
 
 help:
 	@echo "unplow Development Targets:"
 	@echo "  make venv       - Create .venv & install package in editable mode"
 	@echo "  make test       - Run test suite via uv run pytest"
 	@echo "  make test-cov   - Run test suite with coverage report"
+	@echo "  make visualize  - Render checkpoint weight heatmaps & deltas (Phase 19)"
+	@echo "  make web        - Launch interactive visualizer browser front end (Phase 20)"
+	@echo "  make video      - Compile checkpoint timelapse video across revisions (Phase 22)"
 	@echo "  make status     - Check queue status and backend availability"
 	@echo "  make models     - Audit local LLMs available for decompression"
 	@echo "  make inspect    - Direct mechanistic MLP weight inspection via Logit Lens"
@@ -148,6 +152,12 @@ web:
 	uv run unplow web --host 0.0.0.0 --port 8765
 
 ui: web
+
+video:
+	@mkdir -p workspace/visualizations
+	uv run unplow video --domain $(or $(DOMAIN),python) --mode $(or $(MODE),delta) --fps $(or $(FPS),2)
+
+timelapse: video
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32

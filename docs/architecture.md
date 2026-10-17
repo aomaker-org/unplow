@@ -347,7 +347,61 @@ offload synchronization, and domain-specialized training pipelines:
    directly into self-verifying `.unp` archives with Bayesian CTS
    (`FLAG_BAYES_MIXER = 0x08`).
 
+---
+
+## 16. Neural Weight Visualizer & Embedded Provenance Metadata
+
+Phase 19 and Phase 20 introduce the Checkpoint Visualizer
+(`src/unplow/visualizer.py`), rendering raw neural weights, parameter update
+deltas, and multi-projection attention mosaics as self-contained PNG heatmaps:
+
+1. **Air-Gapped Pure-Python PNG Encoder (`encode_png_rgb`)**:
+   Encodes raw RGB scanlines via `zlib` compression with zero external
+   graphics libraries (no `PIL`/`Pillow`, no `matplotlib`), strictly adhering
+   to Directive 18.
+2. **Standard PNG Provenance Chunks (`tEXt`) & Bitmap Banners**:
+   Embeds target checkpoint paths, comparison baselines, tensor names, and
+   summary statistics directly into standard W3C PNG `tEXt` chunks. Draws
+   a pure-Python 5x7 ASCII bitmap font header banner onto each rendered frame.
+3. **Multi-Projection Attention Mosaics (`render_checkpoint_dashboard`)**:
+   Produces 4-quadrant comparative heatmaps displaying raw query weights (TL),
+   query update deltas (TR), key update deltas (BL), and output projection
+   deltas (BR).
+
+---
+
+## 17. Headless Remote Web Studio & SSH Port-Forwarding
+
+Phase 21 introduces the Web Visualizer Studio (`src/unplow/web.py`) with
+remote SSH connectivity for headless server environments:
+
+1. **Interactive Control Panel & Dynamic Telemetry**:
+   Features multi-domain checkpoint selection, live parameter delta inspection,
+   zoom/pan canvas viewing, and real-time disk quota telemetry.
+2. **Headless Remote SSH Architecture**:
+   Listens on `0.0.0.0:8765`, enabling secure SSH port-forwarding tunnels
+   (`ssh -L 8765:localhost:8765 user@host`) or direct LAN access
+   (`http://<lan-ip>:8765`) from remote workstations.
+
+---
+
+## 18. Checkpoint Evolution Timelapse Video
+
+Phase 22 introduces chronological animated video synthesis across model
+revisions (`render_checkpoint_timelapse` and `compile_images_to_apng`):
+
+1. **RFC 7689 Animated PNG (APNG) Encoder (`encode_apng_rgb`)**:
+   Implements a zero-dependency, pure-Python APNG encoder utilizing `acTL`,
+   `fcTL`, `IDAT`, and `fdAT` binary chunk structures with monotonic frame
+   sequence numbering. Supported natively across all modern browsers without
+   `ffmpeg`.
+2. **Multi-Mode Checkpoint Evolution Synthesis**:
+   - `delta`: Cumulative weight drift relative to base revision (`rev001`).
+   - `step`: Inter-iteration update shifts ($W_i - W_{i-1}$).
+   - `raw`: Absolute weight intensity thermal evolution (Inferno palette).
+   - `dashboard`: 4-quadrant multi-projection attention mosaic evolution.
+3. **Interactive Video Studio Front End & CLI Integration**:
+   Integrates video playback (play, pause, frame scrubbing, speed control)
+   into the Web Studio and provides `unplow video` and `make video` targets.
+
 <!-- end of file: unplow/docs/architecture.md -->
-
-
-
