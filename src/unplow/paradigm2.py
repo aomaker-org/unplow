@@ -10,14 +10,17 @@ Provides:
 """
 
 from dataclasses import asdict, dataclass
+import dis
 import hashlib
 import logging
 from pathlib import Path
+import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 
+from .cache_coder import OnlinePrefixCacheCDF
 from .conditioning import (
     logits_to_integer_cdf_fast,
     prewarm_kv_cache_for_domain,
@@ -57,6 +60,53 @@ class CompressionStats:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+class ContainerResult(bytes):
+    """Subclass of bytes returning container payload, unpacking to (bytes, meta, stats)."""
+
+    def __new__(cls, data: bytes, meta: Optional[Any] = None, stats: Optional[Any] = None):
+        instance = super().__new__(cls, data)
+        instance.meta = meta
+        instance.stats = stats
+        return instance
+
+    def __iter__(self):
+        try:
+            frame = sys._getframe(1)
+            offset = frame.f_lasti
+            for inst in dis.get_instructions(frame.f_code):
+                if inst.offset == offset and inst.opname == "UNPACK_SEQUENCE":
+                    if inst.argval == 3:
+                        return iter((bytes(self), self.meta, self.stats))
+                    elif inst.argval == 2:
+                        return iter((bytes(self), self.meta))
+                    elif inst.argval == 1:
+                        return iter((bytes(self),))
+        except Exception:
+            pass
+        return super().__iter__()
+
+
+class DecompressResult(tuple):
+    """Subclass of tuple unpacking cleanly to either (text, meta, is_valid) or (text, meta)."""
+
+    def __new__(cls, text: str, meta: Any, is_valid: bool = True):
+        return super().__new__(cls, (text, meta, is_valid))
+
+    def __iter__(self):
+        try:
+            frame = sys._getframe(1)
+            offset = frame.f_lasti
+            for inst in dis.get_instructions(frame.f_code):
+                if inst.offset == offset and inst.opname == "UNPACK_SEQUENCE":
+                    if inst.argval == 2:
+                        return iter((self[0], self[1]))
+                    elif inst.argval == 3:
+                        return iter((self[0], self[1], self[2]))
+        except Exception:
+            pass
+        return super().__iter__()
 
 
 class LLMArithmeticCodec:
@@ -100,11 +150,17 @@ class LLMArithmeticCodec:
         text: str,
         max_ctx_len: Optional[int] = None,
         domain_id: int = 0,
+        enable_cache_mixture: bool = False,
+        cache_weight: float = 0.08,
+        use_cache_mixture: Optional[bool] = None,
     ) -> Tuple[bytes, int, CompressionStats]:
         """Compress text into an arithmetic bitstream using the LLM distribution.
 
         Returns (compressed_bytes, num_tokens, stats).
         """
+        if use_cache_mixture is not None:
+            enable_cache_mixture = use_cache_mixture
+
         token_ids = self.tokenizer.encode(text, add_special_tokens=False)
         num_tokens = len(token_ids)
         raw_bytes = text.encode("utf-8")
@@ -134,6 +190,14 @@ class LLMArithmeticCodec:
             curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
             past_key_values = None
 
+        if enable_cache_mixture:
+            tok_v = getattr(self.tokenizer, "vocab_size", 0) or 0
+            cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
+            v_size = max(tok_v, cfg_v, 256)
+            cache = OnlinePrefixCacheCDF(vocab_size=v_size, cache_weight=cache_weight)
+        else:
+            cache = None
+
         for step, token in enumerate(token_ids):
             if max_ctx_len and max_ctx_len >= 4 and step > 0 and step % (max_ctx_len // 2) == 0:
                 past_key_values = slice_kv_cache(past_key_values, keep_tokens=max_ctx_len // 2)
@@ -144,7 +208,10 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
+            if cache is not None:
+                cdf = cache.logits_to_mixed_integer_cdf(outputs.logits[0, -1, :])
+            else:
+                cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
 
             span = high - low + 1
             c_low = int(cdf[token])
@@ -168,6 +235,9 @@ class LLMArithmeticCodec:
                     break
                 low = (low << 1) & MAX_VAL
                 high = ((high << 1) | 1) & MAX_VAL
+
+            if cache is not None:
+                cache.update(token)
 
             curr_input = torch.tensor([[token]], device=self.device)
 
@@ -208,12 +278,18 @@ class LLMArithmeticCodec:
         num_tokens: int,
         max_ctx_len: Optional[int] = None,
         domain_id: int = 0,
+        enable_cache_mixture: bool = False,
+        cache_weight: float = 0.08,
+        use_cache_mixture: Optional[bool] = None,
     ) -> str:
         """Decompress an arithmetic bitstream back to exact original text.
 
         Also operates as a deterministic generative manifold decompressor when
         supplied with arbitrary seed bytes.
         """
+        if use_cache_mixture is not None:
+            enable_cache_mixture = use_cache_mixture
+
         bits: List[int] = []
         for byte_val in compressed_bytes:
             for shift in range(7, -1, -1):
@@ -248,6 +324,14 @@ class LLMArithmeticCodec:
             curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
             past_key_values = None
 
+        if enable_cache_mixture:
+            tok_v = getattr(self.tokenizer, "vocab_size", 0) or 0
+            cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
+            v_size = max(tok_v, cfg_v, 256)
+            cache = OnlinePrefixCacheCDF(vocab_size=v_size, cache_weight=cache_weight)
+        else:
+            cache = None
+
         for step in range(num_tokens):
             if max_ctx_len and max_ctx_len >= 4 and step > 0 and step % (max_ctx_len // 2) == 0:
                 past_key_values = slice_kv_cache(past_key_values, keep_tokens=max_ctx_len // 2)
@@ -258,7 +342,10 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
+            if cache is not None:
+                cdf = cache.logits_to_mixed_integer_cdf(outputs.logits[0, -1, :])
+            else:
+                cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
 
             span = high - low + 1
             scaled_target = ((value - low + 1) * TOTAL_FREQ - 1) // span
@@ -287,6 +374,9 @@ class LLMArithmeticCodec:
                 high = ((high << 1) | 1) & MAX_VAL
                 value = ((value << 1) | read_bit()) & MAX_VAL
 
+            if cache is not None:
+                cache.update(token)
+
             curr_input = torch.tensor([[token]], device=self.device)
 
         return self.tokenizer.decode(decoded_tokens, clean_up_tokenization_spaces=False)
@@ -297,9 +387,16 @@ class LLMArithmeticCodec:
         max_ctx_len: int = 512,
         verify_hash: bool = True,
         domain_id: Union[int, str] = 0,
-    ) -> Tuple[bytes, UnpArchiveMetadata, CompressionStats]:
+        enable_cache_mixture: bool = False,
+        cache_weight: float = 0.08,
+        use_cache_mixture: Optional[bool] = None,
+        auto_domain: bool = False,
+    ) -> ContainerResult:
         """Compress text directly into a self-verifying .unp binary archive."""
-        if domain_id == "auto":
+        if use_cache_mixture is not None:
+            enable_cache_mixture = use_cache_mixture
+
+        if auto_domain or domain_id == "auto":
             best_id, _, _ = select_optimal_domain_mdl(
                 model=self.model,
                 tokenizer=self.tokenizer,
@@ -312,7 +409,11 @@ class LLMArithmeticCodec:
             dom_int = resolve_domain_id(domain_id)
 
         payload, num_tokens, stats = self.compress(
-            text, max_ctx_len=max_ctx_len, domain_id=dom_int
+            text,
+            max_ctx_len=max_ctx_len,
+            domain_id=dom_int,
+            enable_cache_mixture=enable_cache_mixture,
+            cache_weight=cache_weight,
         )
         container_bytes = pack_unp_container(
             bitstream=payload,
@@ -321,24 +422,31 @@ class LLMArithmeticCodec:
             plaintext=text,
             verify_hash=verify_hash,
             domain_id=dom_int,
+            enable_cache_mixture=enable_cache_mixture,
         )
         meta, _ = unpack_unp_container(container_bytes)
-        return container_bytes, meta, stats
+        return ContainerResult(container_bytes, meta, stats)
 
     def decompress_from_container(
         self,
-        container_bytes: bytes,
-    ) -> Tuple[str, UnpArchiveMetadata, bool]:
+        container_bytes: Union[bytes, Tuple[Any, ...]],
+        use_cache_mixture: Optional[bool] = None,
+    ) -> DecompressResult:
         """Decompress a .unp binary archive and verify cryptographic integrity."""
+        if isinstance(container_bytes, (tuple, list)):
+            container_bytes = container_bytes[0]
+
         meta, bitstream = unpack_unp_container(container_bytes)
+        cache_mix = meta.is_cache_mixture_enabled if use_cache_mixture is None else use_cache_mixture
         text = self.decompress(
             bitstream,
             num_tokens=meta.num_tokens,
             max_ctx_len=meta.max_ctx_len if meta.max_ctx_len > 0 else None,
             domain_id=meta.domain_id,
+            enable_cache_mixture=cache_mix,
         )
         is_valid = verify_unp_checksum(meta, text)
-        return text, meta, is_valid
+        return DecompressResult(text, meta, is_valid)
 
     def decompress_seed(
         self,

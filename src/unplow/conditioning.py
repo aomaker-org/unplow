@@ -59,11 +59,13 @@ def resolve_domain_id(identifier: Union[int, str]) -> int:
     raise ValueError(f"Unknown domain identifier: {identifier!r}. Available: {list(DOMAIN_NAME_TO_ID.keys())}")
 
 
-def pack_flags_with_domain(verify_hash: bool, domain_id: int = 0) -> int:
-    """Packs 4-bit domain_id (bits 4..7) and verify_hash bit (bit 0) into 1 uint8 byte."""
+def pack_flags_with_domain(
+    verify_hash: bool, domain_id: int = 0, cache_mixture: bool = False
+) -> int:
+    """Packs 4-bit domain_id (bits 4..7), cache_mixture bit (bit 1), and verify_hash bit (bit 0)."""
     if not (0 <= domain_id <= 15):
         raise ValueError(f"domain_id must be in 0..15, got {domain_id}")
-    low_nibble = 0x01 if verify_hash else 0x00
+    low_nibble = (0x01 if verify_hash else 0x00) | (0x02 if cache_mixture else 0x00)
     return ((domain_id & 0x0F) << 4) | low_nibble
 
 

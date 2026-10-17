@@ -23,6 +23,7 @@ def mock_worker(tmp_path: Path):
 
     worker = DecompressionWorker(
         queue=queue,
+        model_name="mock",
         heartbeat_path=str(tmp_path / "logs" / "heartbeat" / "unplow.json"),
         forensics_dir=str(tmp_path / "logs" / "forensics"),
         work_products_dir=str(tmp_path / "workspace" / "work_products"),
@@ -134,5 +135,34 @@ def test_worker_circuits_task(mock_worker):
 
     circuits_file = mock_worker.work_products_dir / f"{task.task_id}_circuits.json"
     assert circuits_file.exists()
+
+
+def test_worker_steer_task(mock_worker):
+    task = mock_worker.queue.enqueue(
+        action="steer",
+        extra={"layer": 1, "neuron": 0, "gain": 2.0, "seq_len": 8, "steps": 4},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    steer_file = mock_worker.work_products_dir / f"{task.task_id}_steered.json"
+    assert steer_file.exists()
+
+
+def test_worker_profile_task(mock_worker):
+    task = mock_worker.queue.enqueue(
+        action="profile",
+        payload="token repeat token repeat",
+        extra={"cache_weight": 0.1},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    surprisal_file = mock_worker.work_products_dir / f"{task.task_id}_surprisal.json"
+    assert surprisal_file.exists()
 
 # end of file: unplow/tests/test_worker.py

@@ -87,6 +87,7 @@ def main() -> None:
     p_circ.add_argument("--allow-numerals", action="store_true", help="Include numeric and punctuation circuits")
     p_circ.add_argument("--harvest", action="store_true", help="Harvest and display synthesized associative seeds")
     p_circ.add_argument("--seeds", type=int, default=12, help="Max seed prefixes to harvest")
+    p_circ.add_argument("--folded", action="store_true", help="Extract RMSNorm-folded SwiGLU circuits")
     p_circ.add_argument("-o", "--output", help="Output path for JSON results")
 
     # Command: compress (Paradigm 2)
@@ -97,6 +98,13 @@ def main() -> None:
     p_comp.add_argument("-f", "--file", help="File containing text to compress")
     p_comp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
     p_comp.add_argument("--max-ctx-len", type=int, default=None, help="Context horizon window")
+    p_comp.add_argument(
+        "--cache-mix",
+        "--cache-mixture",
+        dest="cache_mix",
+        action="store_true",
+        help="Enable online prefix-cache mixture coding",
+    )
     p_comp.add_argument("-o", "--output", help="Output binary file path")
 
     # Command: decompress (Paradigm 2)
@@ -107,6 +115,13 @@ def main() -> None:
     p_decomp.add_argument("-t", "--tokens", type=int, required=True, help="Exact number of tokens in original text")
     p_decomp.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
     p_decomp.add_argument("--max-ctx-len", type=int, default=None, help="Context horizon window")
+    p_decomp.add_argument(
+        "--cache-mix",
+        "--cache-mixture",
+        dest="cache_mix",
+        action="store_true",
+        help="Enable online prefix-cache mixture coding",
+    )
     p_decomp.add_argument("-o", "--output", help="Output file path for reconstructed text")
 
     # Command: archive (Paradigm 2 .unp Container)
@@ -128,6 +143,52 @@ def main() -> None:
         action="store_true",
         help="Auto-select optimal domain prior using MDL cross-entropy",
     )
+    p_arch.add_argument(
+        "--cache-mix",
+        "--cache-mixture",
+        dest="cache_mix",
+        action="store_true",
+        help="Enable online prefix-cache mixture arithmetic coding (Bit 1)",
+    )
+
+    # Command: steer (Phase 4 Activation Steering)
+    p_steer = subparsers.add_parser(
+        "steer", help="Activation-steered neuron basin decompression (Turner et al., 2023)"
+    )
+    p_steer.add_argument("--layer", type=int, required=True, help="Layer index to steer")
+    p_steer.add_argument("--neuron", type=int, required=True, help="Neuron index to steer")
+    p_steer.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_steer.add_argument("--gain", type=float, default=4.5, help="Steering impulse gain (default: 4.5)")
+    p_steer.add_argument("--prompt", default="/* ", help="Seed prompt (default: '/* ')")
+    p_steer.add_argument("--seq-len", type=int, default=48, help="Sequence length to generate (default: 48)")
+    p_steer.add_argument("--steps", type=int, default=16, help="Number of forward passes to steer (default: 16)")
+    p_steer.add_argument(
+        "--temp",
+        "--temperature",
+        dest="temperature",
+        type=float,
+        default=0.25,
+        help="Sampling temperature (default: 0.25)",
+    )
+    p_steer.add_argument("-o", "--output", help="Output JSON path for steered record")
+
+    # Command: profile / surprisal (Phase 4 Shannon Surprisal Profiler)
+    p_prof = subparsers.add_parser(
+        "profile",
+        aliases=["surprisal"],
+        help="Per-token Shannon surprisal ledger and cache savings profiler",
+    )
+    p_prof.add_argument("text", nargs="?", help="Text to profile")
+    p_prof.add_argument("-t", "--text", dest="opt_text", help="Text to profile")
+    p_prof.add_argument("-f", "--file", "-i", "--input", dest="file", help="File containing text to profile")
+    p_prof.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_prof.add_argument(
+        "--cache-weight",
+        type=float,
+        default=0.08,
+        help="Prefix cache mixture weight (default: 0.08)",
+    )
+    p_prof.add_argument("-o", "--output", help="Output JSON path for surprisal profile")
 
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
@@ -159,7 +220,10 @@ def main() -> None:
     p_enq = subparsers.add_parser("enqueue", help="Add asynchronous task to file queue")
     p_enq.add_argument(
         "action",
-        choices=["probe", "compress", "decompress", "manifold", "archive", "unarchive", "circuits"],
+        choices=[
+            "probe", "compress", "decompress", "manifold", "archive", "unarchive",
+            "circuits", "steer", "profile", "surprisal",
+        ],
         help="Task action",
     )
     p_enq.add_argument("--payload", default="", help="Text or payload string")
@@ -232,9 +296,36 @@ def main() -> None:
                 print(f"    {repr(s)}")
 
     elif args.command in ("circuits", "circuit", "swiglu"):
+        layers = args.layer if args.layer else None
+        if getattr(args, "folded", False):
+            from .steering import MechanisticSteeringEngine
+            print(f"[*] Initializing Mechanistic Steering Engine for folded circuits (model: {args.model})...")
+            engine = MechanisticSteeringEngine(model_name=args.model)
+            print(f"[*] Extracting RMSNorm-folded SwiGLU circuits (candidates={args.candidates})...")
+            traces = engine.extract_rmsnorm_folded_circuits(
+                layer_indices=layers,
+                candidates_per_layer=args.candidates,
+                top_k_tokens=args.top_tokens,
+            )
+            print(f"\n=== [RMSNorm-Folded SwiGLU Circuits (Dar et al., 2023)] ({len(traces)} traces found) ===")
+            print(f"{'Layer':<6} {'Neuron':<8} {'Centered L2':<13} {'Selectivity':<13} "
+                  f"{'Folded Trigger Key':<24} {'Target Value':<20}")
+            print("-" * 88)
+            for tr in traces[:25]:
+                k_disp = str(tr.folded_trigger_keys[:3])
+                v_disp = str(tr.target_values[:3])
+                print(f"{tr.layer_idx:<6} {tr.neuron_idx:<8} {tr.centered_l2_norm:<13.4f} "
+                      f"{tr.selectivity_margin:<13.4f} {k_disp:<24} {v_disp:<20}")
+            if args.output:
+                out_p = Path(args.output)
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                with open(out_p, "w", encoding="utf-8") as f:
+                    json.dump([t.to_dict() for t in traces], f, indent=2)
+                print(f"\n[+] Exported {len(traces)} folded traces to {out_p}")
+            return
+
         print(f"[*] Initializing SwiGLU Circuit Decompressor (model: {args.model})...")
         decompressor = SwiGLUCircuitDecompressor(model_name=args.model)
-        layers = args.layer if args.layer else None
         suppress_num = not getattr(args, "allow_numerals", False)
         print(f"[*] Extracting coupled SwiGLU circuits "
               f"(candidates={args.candidates}, suppress_numerals={suppress_num})...")
@@ -272,6 +363,82 @@ def main() -> None:
                 json.dump([c.to_dict() for c in circuits], f, indent=2)
             print(f"\n[+] Exported {len(circuits)} circuit traces to {out_p}")
 
+    elif args.command == "steer":
+        from .steering import MechanisticSteeringEngine
+        print(f"[*] Decompressing training basin via activation steering: "
+              f"Layer {args.layer}, Neuron {args.neuron} (gain={args.gain}, model={args.model})...")
+        engine = MechanisticSteeringEngine(model_name=args.model)
+        rec = engine.decompress_neuron_basin(
+            layer_idx=args.layer,
+            neuron_idx=args.neuron,
+            seed_prompt=args.prompt,
+            seq_len=args.seq_len,
+            steering_gain=args.gain,
+            steering_steps=args.steps,
+            temperature=args.temperature,
+        )
+        print("\n=== Steered Basin Decompression Record ===")
+        print(f"Layer / Neuron     : Layer {rec.layer_idx}, Neuron #{rec.neuron_idx:04d}")
+        print(f"Steering Gain      : {rec.steering_gain}")
+        print(f"Model Cross-Entropy: {rec.model_bpb} bpb")
+        print(f"Zlib Syntactic BPB : {rec.zlib_bpb} bpb")
+        print(f"Memorization Score : {rec.memorization_score}x")
+        print("\n--- Extracted Basin Plaintext ---")
+        print(rec.extracted_text)
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_p, "w", encoding="utf-8") as f:
+                json.dump(rec.to_dict(), f, indent=2)
+            print(f"\n[+] Exported steered record to {out_p}")
+
+    elif args.command in ("profile", "surprisal"):
+        from .cache_coder import profile_sequence_surprisal
+        from .models import load_causal_lm
+        text = getattr(args, "opt_text", None) or args.text
+        if args.file:
+            text = Path(args.file).read_text(encoding="utf-8")
+        elif not text and not sys.stdin.isatty():
+            text = sys.stdin.read()
+
+        if not text:
+            print("[-] Error: No text supplied for surprisal profiling.", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"[*] Profiling sequence surprisal (model={args.model}, cache_weight={args.cache_weight})...")
+        tok, mod, mod_path = load_causal_lm(model_identifier=args.model)
+        bos_id = getattr(tok, "bos_token_id", 0) or 0
+        report = profile_sequence_surprisal(
+            model=mod,
+            tokenizer=tok,
+            plaintext=text,
+            bos_token_id=bos_id,
+            cache_weight=args.cache_weight,
+        )
+        print(f"\n=== Per-Token Shannon Surprisal Profile "
+              f"({report.total_tokens} tokens, {report.total_bytes} bytes) ===")
+        print(f"Ideal Total Bits   : {report.ideal_total_bits:.3f} bits")
+        print(f"Ideal Bits Per Byte: {report.ideal_bits_per_byte:.3f} bpb")
+        print(f"Cache Bits Saved   : {report.cache_bits_saved:.3f} bits")
+        header_cols = (
+            f"{'Step':<6} {'Token ID':<10} {'Token Str':<18} "
+            f"{'P(LLM)':<12} {'P(Mix)':<12} {'Bits':<8} {'Cum Bits':<10}"
+        )
+        print(f"\n{header_cols}")
+        print("-" * 78)
+        for e in report.entries[:30]:
+            tok_rep = repr(e.token_str)
+            print(f"{e.step_idx:<6} {e.token_id:<10} {tok_rep:<18} {e.prob_llm:<12.6f} {e.prob_mixed:<12.6f} "
+                  f"{e.ideal_shannon_bits:<8.3f} {e.cumulative_bits:<10.3f}")
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_p, "w", encoding="utf-8") as f:
+                json.dump(report.to_dict(), f, indent=2)
+            print(f"\n[+] Exported surprisal report to {out_p}")
+
     elif args.command in ("archive", "pack"):
         text = args.text
         if args.file:
@@ -288,14 +455,16 @@ def main() -> None:
             sys.exit(1)
 
         domain_choice = "auto" if getattr(args, "auto_domain", False) else (args.domain or 0)
+        cache_mix = getattr(args, "cache_mix", False)
         print(f"[*] Packing into .unp container using model: {args.model} "
-              f"(domain: {domain_choice}, max_ctx: {args.max_ctx_len})...")
+              f"(domain: {domain_choice}, max_ctx: {args.max_ctx_len}, cache_mix: {cache_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         container_bytes, meta, stats = codec.compress_to_container(
             text=text,
             max_ctx_len=args.max_ctx_len,
             verify_hash=True,
             domain_id=domain_choice,
+            enable_cache_mixture=cache_mix,
         )
 
         out_path = Path(args.output) if args.output else Path(f"{args.file or 'payload'}.unp")
@@ -309,6 +478,7 @@ def main() -> None:
         print(f"Bits per Byte     : {stats.bits_per_byte} bpb")
         print(f"Compression Ratio : {stats.compression_ratio}:1 ({stats.savings_percent}% reduction)")
         print(f"Domain Prior      : ID {meta.domain_id} ({dom_name})")
+        print(f"Cache Mixture     : {'ENABLED (Bit 1)' if meta.cache_mixture else 'DISABLED'}")
         print(f"Header SHA256 Pre : {meta.sha256_prefix_hex}")
 
     elif args.command in ("unarchive", "unpack"):
@@ -330,6 +500,7 @@ def main() -> None:
               f"({meta.num_tokens / max(elapsed, 0.001):.1f} tok/s)")
         print(f"Context Stride    : {meta.max_ctx_len}")
         print(f"Domain Prior      : ID {meta.domain_id} ({dom_name})")
+        print(f"Cache Mixture     : {'ENABLED (Bit 1)' if meta.cache_mixture else 'DISABLED'}")
         print(f"SHA-256 Checksum  : {'VERIFIED MATCH' if is_valid else 'CHECKSUM MISMATCH'}")
 
         if args.output:
@@ -352,9 +523,12 @@ def main() -> None:
             print("[-] Error: No text supplied for compression.", file=sys.stderr)
             sys.exit(1)
 
-        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model})...")
+        cache_mix = getattr(args, "cache_mix", False)
+        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, cache_mix: {cache_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
-        payload, n_tokens, stats = codec.compress(text, max_ctx_len=args.max_ctx_len)
+        payload, n_tokens, stats = codec.compress(
+            text, max_ctx_len=args.max_ctx_len, enable_cache_mixture=cache_mix
+        )
 
         print("\n=== [Paradigm 2] Lossless Arithmetic Compression Results ===")
         print(f"Original Size     : {stats.original_bytes} bytes ({stats.num_tokens} tokens)")
@@ -378,12 +552,18 @@ def main() -> None:
             print(f"[-] Error: Payload file '{args.payload_file}' not found.", file=sys.stderr)
             sys.exit(1)
 
+        cache_mix = getattr(args, "cache_mix", False)
         payload_bytes = payload_p.read_bytes()
-        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model})...")
+        print(f"[*] Initializing Paradigm 2 Arithmetic Codec (model: {args.model}, cache_mix: {cache_mix})...")
         codec = LLMArithmeticCodec(model_name=args.model)
         print(f"[*] Decompressing {len(payload_bytes)} bytes into {args.tokens} tokens...")
         t0 = time.time()
-        reconstructed = codec.decompress(payload_bytes, num_tokens=args.tokens, max_ctx_len=args.max_ctx_len)
+        reconstructed = codec.decompress(
+            payload_bytes,
+            num_tokens=args.tokens,
+            max_ctx_len=args.max_ctx_len,
+            enable_cache_mixture=cache_mix,
+        )
         elapsed = time.time() - t0
 
         print("\n=== [Paradigm 2] Lossless Reconstructed Text ===")

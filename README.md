@@ -61,6 +61,18 @@ payload, this problem splits into two distinct mathematical paradigms:
   - Packs 4-bit domain prior into `.unp` header flags upper nibble.
   - Pre-warms KV-cache to eliminate token-0 cold-start entropy.
   - Minimum Description Length auto-routing across prose, code, and telemetry.
+- **RMSNorm-Folded Key Lenses & Activation Steering (Phase 4)**:
+  - Folds `post_attention_layernorm.weight` into SwiGLU receptor keys over
+    mean-centered $\tilde{W}_E$, removing multilingual rogue-cone artifacts.
+  - Causal forward-hook steering on MLP `down_proj` layers, forcing the model
+    to unpack memorized training basins from neutral prompts.
+- **Online Prefix-Cache Mixture & Surprisal Profiler (Phase 4)**:
+  - Dynamically blends static LLM softmax with deterministic prefix
+    unigram histogram ($P_{\text{mix}} = (1-\lambda)P_{\theta} + \lambda
+    P_{\text{cache}}$) via `.unp` Bit 1 (`FLAG_CACHE_MIXTURE`) with zero
+    side-information bits.
+  - Per-token Shannon surprisal attribution ledger quantifying empirical bits
+    saved by continuous prefix caching.
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -97,20 +109,34 @@ uv run unplow circuits --layer 16 --candidates 10 --seeds 4
 uv run unplow probe --samples 4 --seq-len 64
 ```
 
-### 5. Pack Self-Verifying .unp Archive with MDL Auto-Domain (Phase 3)
+### 5. Extract RMSNorm-Folded Circuits & Steer Basins (Phase 4)
+
+```bash
+uv run unplow circuits --folded --layer 16 --candidates 10
+uv run unplow steer --layer 16 --neuron 467 --gain 4.5 --prompt "/* "
+```
+
+### 6. Pack .unp Container with Domain Prior & Cache Mixture (Phase 4)
 
 ```bash
 uv run unplow archive \
-  --text "Lossless container test." --auto-domain -o test.unp
+  --text "Lossless container test." --auto-domain --cache-mix -o test.unp
 ```
 
-### 6. Unpack and Verify .unp Container
+### 7. Profile Token Surprisal & Cache Mixture Savings (Phase 4)
+
+```bash
+uv run unplow profile \
+  "unplow_token unplow_token unplow_token lossless cache mixture."
+```
+
+### 8. Unpack and Verify .unp Container
 
 ```bash
 uv run unplow unarchive test.unp
 ```
 
-### 7. Lossless Arithmetic Compression (Paradigm 2)
+### 9. Lossless Arithmetic Compression (Paradigm 2)
 
 ```bash
 uv run unplow compress \
@@ -118,25 +144,25 @@ uv run unplow compress \
   -o output.bin
 ```
 
-### 8. Exact Lossless Decompression (Paradigm 2)
+### 10. Exact Lossless Decompression (Paradigm 2)
 
 ```bash
 uv run unplow decompress output.bin --tokens 9
 ```
 
-### 9. Generative Manifold Decompression from Seed
+### 11. Generative Manifold Decompression from Seed
 
 ```bash
 uv run unplow manifold --seed "unplow_latent_manifold" --tokens 30
 ```
 
-### 7. Run Decompression Benchmark
+### 12. Run Decompression Benchmark
 
 ```bash
 uv run unplow benchmark --runs 3
 ```
 
-### 8. Start Background Worker Daemon
+### 13. Start Background Worker Daemon
 
 ```bash
 uv run unplow daemon --interval 2.0
@@ -166,13 +192,19 @@ make test
 unplow/
 ├── src/
 │   └── unplow/              # Core LLM decompression package
+│       ├── cache_coder.py   # Online prefix-cache mixture & surprisal
+│       ├── circuits.py      # Coupled SwiGLU circuits & logit lens
 │       ├── cli.py           # Command-line interface
+│       ├── conditioning.py  # Domain prior pre-warming & fast PyTorch CDF
+│       ├── container.py     # 18-byte framed .unp binary container
 │       ├── forensics.py     # Cryptographic audit ledger & telemetry
+│       ├── mechanistic.py   # Direct layer logit lens inspection
 │       ├── models.py        # Local model locator & deterministic mocks
 │       ├── paradigm1.py     # Lossy static weight decompressor
 │       ├── paradigm2.py     # Lossless arithmetic codec & manifold engine
 │       ├── queue.py         # Atomic POSIX file-locked queue
 │       ├── safety.py        # Air-gap enforcer & additive file safety
+│       ├── steering.py      # RMSNorm-folded lens & activation steering
 │       └── worker.py        # Decompression worker daemon
 ├── models/
 │   ├── configs/             # Model configurations
@@ -212,9 +244,17 @@ unplow/
   Kolmogorov complexity, and the Hutter Prize.
 - **Jorma Rissanen (1976) & Ian Witten, Radford Neal, John Cleary (1987):**
   Arithmetic coding with fixed-point integer registers.
+- **Roland Kuhn & Renato De Mori (1990):** *A Cache-Based Natural Language Model
+  for Speech Recognition* (IEEE TPAMI).
 - **Nicholas Carlini et al. (2021):** *Extracting Training Data from Large
   Language Models* (USENIX Security 2021).
 - **Fabrice Bellard (2019-2021):** `NNCP` and `ts_zip` neural compressors.
+- **Kevin Meng et al. (2022) & Alex Turner et al. (2023):** Locating and
+  editing facts (ROME) & activation addition / steering vectors.
+- **Guy Dar, Mor Geva, Ankit Gupta, & Jonathan Berant (2023):** *Analyzing
+  Transformers in Embedding Space* (ACL 2023).
+- **Edouard Grave, Armand Joulin, & Nicolas Usunier (2017):** *Improving Neural
+  Language Models with a Continuous Cache* (ICLR 2017).
 - **Grégoire Delétang et al. (ICLR 2024):** *Language Modeling Is Compression*
   (Google DeepMind).
 

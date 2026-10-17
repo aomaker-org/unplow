@@ -71,5 +71,38 @@ def test_cli_archive_domain_help():
     assert result.returncode == 0
     assert "--domain" in result.stdout
     assert "--auto-domain" in result.stdout
+    assert "--cache-mix" in result.stdout
+
+
+def test_cli_circuits_folded_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "circuits", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--folded" in result.stdout
+
+
+def test_cli_steer_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "steer", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--layer" in result.stdout
+    assert "--neuron" in result.stdout
+    assert "--gain" in result.stdout
+
+
+def test_cli_profile_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "profile", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--cache-weight" in result.stdout
 
 # end of file: unplow/tests/test_cli.py
