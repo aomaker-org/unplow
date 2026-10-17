@@ -8,6 +8,7 @@ free disk space threshold is strictly maintained.
 """
 
 import argparse
+import os
 from pathlib import Path
 import sys
 import time
@@ -68,6 +69,19 @@ class IncrementalTrainer:
         each epoch increment.
         """
         print(f"\n[IncrementalTrainer] Starting training loop for domain: till-{domain_name}")
+        print(f"[IncrementalTrainer] Input Training Data Snippet (till-{domain_name}):")
+        print("  " + "-" * 70)
+        snippet_lines = []
+        for text in corpus_texts:
+            for l in text.splitlines():
+                if l.strip():
+                    snippet_lines.append(l)
+            if len(snippet_lines) >= 20:
+                break
+        for line_no, s_line in enumerate(snippet_lines[:20], 1):
+            print(f"  {line_no:02d} | {s_line}")
+        print("  " + "-" * 70)
+
         tracker = PerplexityTracker(self.model, self.tokenizer)
 
         # Apply parameter isolation guard for large models (> 10M params) on CPU
@@ -183,14 +197,14 @@ def main() -> None:
     parser.add_argument(
         "--epochs",
         type=int,
-        default=3,
-        help="Total incremental epochs per domain (default: 3)",
+        default=int(os.environ.get("EPOCHS", "1")),
+        help="Total incremental epochs per domain (default: 1)",
     )
     parser.add_argument(
         "--steps",
         type=int,
-        default=5,
-        help="Gradient steps per epoch increment (default: 5)",
+        default=int(os.environ.get("STEPS", "2")),
+        help="Gradient steps per epoch increment (default: 2)",
     )
     parser.add_argument(
         "-m", "--model",
