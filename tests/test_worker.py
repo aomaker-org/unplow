@@ -297,4 +297,39 @@ def test_worker_bundle_task(mock_worker, tmp_path):
     assert bundle_json.exists()
 
 
+def test_worker_till_tasks(mock_worker, tmp_path):
+    corpus_base = tmp_path / "till_corpus"
+
+    # 1. Test till-init task
+    task_init = mock_worker.queue.enqueue(
+        action="till-init",
+        payload="",
+        extra={"corpus_dir": str(corpus_base)},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t1, p1 = claimed
+    mock_worker.process_task(t1, p1)
+    init_json = mock_worker.work_products_dir / f"{task_init.task_id}_till_init.json"
+    assert init_json.exists()
+    assert (corpus_base / "python").exists()
+
+    # 2. Test till-train task
+    task_train = mock_worker.queue.enqueue(
+        action="till-train",
+        payload="python",
+        extra={
+            "domain": "python",
+            "corpus": str(corpus_base / "python"),
+            "train_steps": 1,
+        },
+    )
+    claimed2 = mock_worker.queue.claim_next_task()
+    assert claimed2 is not None
+    t2, p2 = claimed2
+    mock_worker.process_task(t2, p2)
+    train_json = mock_worker.work_products_dir / f"{task_train.task_id}_till_train.json"
+    assert train_json.exists()
+
+
 # end of file: unplow/tests/test_worker.py

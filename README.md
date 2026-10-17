@@ -131,6 +131,14 @@ payload, this problem splits into two distinct mathematical paradigms:
     (`FLAG_BAYES_MIXER = 0x08`) maximizing cross-file pattern compression.
   - Strict per-file cryptographic SHA-256 integrity verification during lossless
     unbundling and workspace restoration.
+- **Till Specialized Models & Storage Guardian (Phase 11 - `till`)**:
+  - Continuous disk telemetry enforcement strictly maintaining >= 15% free
+    partition space, dispatching configured `rclone` offload transfers.
+  - Multi-language training corpus staging across five specialized domains:
+    `till-python`, `till-c`, `till-cpp`, `till-rust`, and `till-gencode`.
+  - Closed-loop PyTorch distillation fine-tuning, adapter configuration saving,
+    and direct high-density archiving via Bayesian CTS
+    (`FLAG_BAYES_MIXER = 0x08`).
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -292,6 +300,24 @@ uv run unplow bundle src/ -o workspace/targets/src_bundle.unp
 uv run unplow unbundle workspace/targets/src_bundle.unp -o workspace/restored/
 ```
 
+### 23. Till Model Staging, Disk Telemetry & Distillation (Phase 11)
+
+```bash
+# Verify disk telemetry and 15% threshold
+uv run python -c \
+  "from unplow.till_guard import TillDiskGuardian; \
+print(TillDiskGuardian().check_disk())"
+
+# Stage domain training corpora
+uv run unplow till-init --manifest workspace/till_manifest.toml
+
+# Train specialized till-python model and archive with Bayesian CTS
+uv run unplow till-train \
+  --domain python \
+  --corpus workspace/till_corpus/python/ \
+  -o workspace/targets/till_python.unp
+```
+
 ---
 
 ## Testing
@@ -337,6 +363,7 @@ unplow/
 │       ├── steering.py      # RMSNorm-folded lens & activation steering
 │       ├── subspace_coder.py# SVD subspace steering & Markov bigram cache
 │       ├── task_vectors.py  # Cross-substrate task vectors & SVD steering
+│       ├── till_guard.py    # Storage guardian & till domain model staging
 │       └── worker.py        # Decompression worker daemon
 ├── models/
 │   ├── configs/             # Model configurations

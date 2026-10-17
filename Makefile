@@ -7,7 +7,8 @@ PYTEST := uv run pytest
 
 .PHONY: help venv install test test-cov lint status models inspect circuits steer
 .PHONY: profile probe compress decompress archive unarchive manifold benchmark
-.PHONY: gguf-inspect subspace-steer task-vector audit replow eval bundle daemon view watch sync clean
+.PHONY: gguf-inspect subspace-steer task-vector audit replow eval bundle
+.PHONY: till-init till-train daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -27,6 +28,8 @@ help:
 	@echo "  make replow     - Refactor code basins, stage datasets, and archive (Phase 8)"
 	@echo "  make eval       - Sandboxed functional tests & perplexity evaluation (Phase 9)"
 	@echo "  make bundle     - Hierarchical multi-file directory tree bundling (Phase 10)"
+	@echo "  make till-init  - Initialize disk guard telemetry and stage domain corpora (Phase 11)"
+	@echo "  make till-train - Run till-python distillation and Bayesian CTS archiving (Phase 11)"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -94,6 +97,12 @@ eval:
 
 bundle:
 	uv run unplow bundle tests/data/ -o workspace/targets/tests_data.unp
+
+till-init:
+	uv run unplow till-init --manifest workspace/till_manifest.toml
+
+till-train:
+	uv run unplow till-train --domain python --corpus workspace/till_corpus/python/ -o workspace/targets/till_python.unp
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32

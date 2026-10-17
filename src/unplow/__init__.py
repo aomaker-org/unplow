@@ -149,11 +149,19 @@ from .task_vectors import (
     TaskVectorSpectrumReport,
     TaskVectorSteeredRecord,
 )
+from .till_guard import (
+    DiskTelemetry,
+    TILL_DOMAINS,
+    TillDiskGuardian,
+    TillTrainReport,
+    init_till_staging,
+    train_till_domain,
+)
 from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -174,6 +182,7 @@ __all__ = [
     "DecompressionWorker",
     "DeterministicMockCausalLM",
     "DeterministicMockTokenizer",
+    "DiskTelemetry",
     "ExtractedRecord",
     "FLAG_BAYES_MIXER",
     "FLAG_BIGRAM_CACHE",
@@ -217,6 +226,7 @@ __all__ = [
     "SubstrateDeltaReport",
     "SurprisalProfileReport",
     "SwiGLUCircuitDecompressor",
+    "TILL_DOMAINS",
     "TOTAL_FREQ",
     "Task",
     "evaluate_artifact",
@@ -224,6 +234,8 @@ __all__ = [
     "TaskStatus",
     "TaskVectorSpectrumReport",
     "TaskVectorSteeredRecord",
+    "TillDiskGuardian",
+    "TillTrainReport",
     "TokenSurprisalEntry",
     "UNP_HEADER_FORMAT",
     "UNP_HEADER_SIZE",
@@ -237,6 +249,7 @@ __all__ = [
     "compute_file_sha256",
     "compute_str_sha256",
     "get_telemetry_snapshot",
+    "init_till_staging",
     "load_causal_lm",
     "load_local_model",
     "logits_to_integer_cdf_fast",
@@ -248,6 +261,7 @@ __all__ = [
     "resolve_model_path",
     "select_optimal_domain_mdl",
     "slice_kv_cache",
+    "train_till_domain",
     "unpack_flags_with_domain",
     "unpack_unp_container",
     "validate_additive_artifact_path",
