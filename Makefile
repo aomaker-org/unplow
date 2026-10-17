@@ -9,7 +9,7 @@ PYTEST := uv run pytest
 .PHONY: profile probe compress decompress archive unarchive manifold benchmark
 .PHONY: gguf-inspect subspace-steer task-vector audit replow eval bundle
 .PHONY: till-init till-train till-train-c till-train-cpp till-train-rust till-train-gencode till-train-all
-.PHONY: daemon view watch sync clean
+.PHONY: till-guard-offload full-pipeline daemon view watch sync clean
 
 help:
 	@echo "unplow Development Targets:"
@@ -32,6 +32,8 @@ help:
 	@echo "  make till-init  - Initialize disk guard telemetry and stage domain corpora (Phase 11)"
 	@echo "  make till-train - Run till-python distillation and Bayesian CTS archiving (Phase 11)"
 	@echo "  make till-train-all - Train and archive all 5 specialized till-* domains"
+	@echo "  make till-offload - Enforce disk quota and offload candidate artifacts"
+	@echo "  make full-pipeline - Run end-to-end multi-domain extraction and training pipeline"
 	@echo "  make probe      - Run static weight decompression probe (Paradigm 1)"
 	@echo "  make compress   - Run arithmetic text compression (Paradigm 2)"
 	@echo "  make decompress - Run arithmetic text decompression (Paradigm 2)"
@@ -119,6 +121,12 @@ till-train-gencode:
 	uv run unplow till-train --domain gencode --corpus workspace/till_corpus/gencode/ -o workspace/targets/till_gencode.unp
 
 till-train-all: till-train till-train-c till-train-cpp till-train-rust till-train-gencode
+
+till-guard-offload till-offload:
+	uv run unplow till-guard-offload
+
+full-pipeline:
+	uv run python src/unplow/full_pipeline.py
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
