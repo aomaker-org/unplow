@@ -130,7 +130,7 @@ full-pipeline:
 	uv run python src/unplow/full_pipeline.py
 
 incremental-pipeline:
-	uv run python src/unplow/incremental_pipeline.py
+	uv run python src/unplow/incremental_pipeline.py $(PIPELINE_ARGS)
 
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
