@@ -448,6 +448,37 @@ def main() -> None:
     )
     p_toff.add_argument("--json", action="store_true", help="Output offload result as JSON")
 
+    # Command: visualize (Weight Tensor & Delta Visualizer)
+    p_vis = subparsers.add_parser(
+        "visualize", aliases=["vis"], help="Render model weight heatmaps and update deltas as PNGs"
+    )
+    p_vis.add_argument("checkpoint", help="Path to target .pt model checkpoint")
+    p_vis.add_argument(
+        "--compare",
+        help="Path to previous .pt model checkpoint to compute differential updates",
+    )
+    p_vis.add_argument(
+        "--tensor",
+        help="Specific tensor name to render (default: Layer 27 Q-projection)",
+    )
+    p_vis.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Generate 4-quadrant multi-projection comparison dashboard",
+    )
+    p_vis.add_argument(
+        "-o",
+        "--output",
+        default="workspace/targets/weight_delta.png",
+        help="Output PNG image path (default: workspace/targets/weight_delta.png)",
+    )
+    p_vis.add_argument(
+        "--size",
+        type=int,
+        default=512,
+        help="Render square resolution dimension (default: 512)",
+    )
+
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
     p_unarch.add_argument("archive_file", help="Path to .unp archive file")
@@ -1103,6 +1134,59 @@ def main() -> None:
                 print(f"[+] Storage threshold satisfied (>= {guardian.min_free_pct}%).")
             else:
                 print("[-] Warning: Storage threshold not satisfied.", file=sys.stderr)
+
+    elif args.command in ("visualize", "vis"):
+        import torch
+        from unplow.visualizer import (
+            render_checkpoint_dashboard,
+            render_delta_heatmap,
+            render_tensor_heatmap,
+        )
+
+        chk = Path(args.checkpoint)
+        if not chk.exists():
+            print(f"[-] Error: Checkpoint file '{args.checkpoint}' not found.", file=sys.stderr)
+            sys.exit(1)
+
+        out_path = Path(args.output)
+        size = (args.size, args.size)
+
+        if args.dashboard:
+            if not args.compare:
+                print("[-] Error: --dashboard requires --compare <previous_checkpoint>.", file=sys.stderr)
+                sys.exit(1)
+            cmp_chk = Path(args.compare)
+            if not cmp_chk.exists():
+                print(f"[-] Error: Comparison checkpoint '{args.compare}' not found.", file=sys.stderr)
+                sys.exit(1)
+            print(f"[*] Rendering multi-projection dashboard: {chk.name} vs {cmp_chk.name} -> {out_path}...")
+            res = render_checkpoint_dashboard(cmp_chk, chk, out_path, grid_size=size)
+            print(f"[+] Multi-projection dashboard rendered successfully: {res} ({res.stat().st_size} bytes)")
+        elif args.compare:
+            cmp_chk = Path(args.compare)
+            if not cmp_chk.exists():
+                print(f"[-] Error: Comparison checkpoint '{args.compare}' not found.", file=sys.stderr)
+                sys.exit(1)
+            print(f"[*] Computing differential update heatmap: {chk.name} vs {cmp_chk.name}...")
+            w1 = torch.load(cmp_chk, map_location="cpu", weights_only=False)
+            w2 = torch.load(chk, map_location="cpu", weights_only=False)
+            t_name = args.tensor or next((k for k in w2 if "q_proj" in k and "weight" in k), list(w2.keys())[0])
+            if t_name not in w1 or t_name not in w2:
+                print(f"[-] Error: Tensor '{t_name}' not found in both checkpoints.", file=sys.stderr)
+                sys.exit(1)
+            print(f"[*] Rendering delta heatmap for tensor: {t_name} -> {out_path}...")
+            res = render_delta_heatmap(w1[t_name], w2[t_name], out_path, target_size=size)
+            print(f"[+] Differential heatmap rendered successfully: {res} ({res.stat().st_size} bytes)")
+        else:
+            print(f"[*] Loading checkpoint weights: {chk.name}...")
+            w = torch.load(chk, map_location="cpu", weights_only=False)
+            t_name = args.tensor or next((k for k in w if "q_proj" in k and "weight" in k), list(w.keys())[0])
+            if t_name not in w:
+                print(f"[-] Error: Tensor '{t_name}' not found in checkpoint.", file=sys.stderr)
+                sys.exit(1)
+            print(f"[*] Rendering tensor heatmap: {t_name} -> {out_path}...")
+            res = render_tensor_heatmap(w[t_name], out_path, target_size=size)
+            print(f"[+] Weight heatmap rendered successfully: {res} ({res.stat().st_size} bytes)")
 
     elif args.command in ("archive", "pack"):
         text = args.text

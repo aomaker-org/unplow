@@ -132,6 +132,17 @@ full-pipeline:
 incremental-pipeline:
 	uv run python src/unplow/incremental_pipeline.py $(PIPELINE_ARGS)
 
+visualize:
+	@mkdir -p workspace/targets
+	@uv run python -c "\
+import glob, subprocess, sys;\
+pts = sorted(glob.glob('models/till-python-lora/adapter_model_rev*.pt'));\
+target = 'workspace/targets/weight_delta.png';\
+c = ['uv', 'run', 'unplow', 'visualize', pts[-1], '--compare', pts[-2], '--dashboard', '-o', target] \
+if len(pts) >= 2 else ['uv', 'run', 'unplow', 'visualize', pts[-1], '-o', target] if pts \
+else ['echo', '[-] No checkpoints found'];\
+sys.exit(subprocess.run(c).returncode)"
+
 probe:
 	uv run unplow probe --samples 2 --seq-len 32
 

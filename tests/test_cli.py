@@ -386,4 +386,56 @@ pattern = "*.unp"
     assert data["dry_run"] is True
 
 
+def test_cli_visualize_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "visualize", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "visualize" in result.stdout
+    assert "--dashboard" in result.stdout
+
+
+def test_cli_visualize_execution(tmp_path):
+    import torch
+
+    chk1 = tmp_path / "model1.pt"
+    chk2 = tmp_path / "model2.pt"
+    out_single = tmp_path / "single.png"
+    out_dash = tmp_path / "dash.png"
+
+    state1 = {"model.layers.0.self_attn.q_proj.weight": torch.randn(16, 16)}
+    state2 = {"model.layers.0.self_attn.q_proj.weight": torch.randn(16, 16)}
+    torch.save(state1, chk1)
+    torch.save(state2, chk2)
+
+    # 1. Single weight heatmap
+    res_single = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "visualize",
+            str(chk1), "-o", str(out_single), "--size", "32",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res_single.returncode == 0
+    assert out_single.exists()
+    assert out_single.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+    # 2. Multi-projection dashboard
+    res_dash = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "visualize",
+            str(chk2), "--compare", str(chk1),
+            "--dashboard", "-o", str(out_dash), "--size", "32",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res_dash.returncode == 0
+    assert out_dash.exists()
+    assert out_dash.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
 # end of file: unplow/tests/test_cli.py
