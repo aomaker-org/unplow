@@ -345,4 +345,45 @@ def test_cli_till_train(tmp_path):
     assert out_unp.exists()
 
 
+def test_cli_till_guard_offload(tmp_path):
+    manifest_file = tmp_path / "manifest.toml"
+    p_str = str(tmp_path).replace("\\", "/")
+    manifest_content = f"""
+[manifest]
+version = "1.0.0"
+target_free_percentage = 15.0
+rclone_destination = "gdrive:transfer/test/"
+
+[offload_targets.caches]
+path = "{p_str}"
+items = []
+
+[offload_targets.checkpoints]
+path = "{p_str}"
+items = []
+
+[offload_targets.archives]
+path = "{p_str}"
+pattern = "*.unp"
+"""
+    manifest_file.write_text(manifest_content.strip(), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "till-guard-offload",
+            "--manifest", str(manifest_file),
+            "--dry-run",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["status"] in ("SATISFIED", "OFFLOAD_FAILED")
+    assert "initial_telemetry" in data
+    assert "post_telemetry" in data
+    assert data["dry_run"] is True
+
+
 # end of file: unplow/tests/test_cli.py

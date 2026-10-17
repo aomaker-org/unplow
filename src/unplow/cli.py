@@ -424,6 +424,30 @@ def main() -> None:
     )
     p_ttrain.add_argument("--json", action="store_true", help="Output train report as JSON")
 
+    # Command: till-guard-offload (Phase 14 Storage Guardian Offload)
+    p_toff = subparsers.add_parser(
+        "till-guard-offload",
+        aliases=["till-offload"],
+        help="Enforce disk threshold and trigger rclone offload to Google Drive",
+    )
+    p_toff.add_argument(
+        "--manifest",
+        default="workspace/till_manifest.toml",
+        help="Path to till offload manifest (default: workspace/till_manifest.toml)",
+    )
+    p_toff.add_argument(
+        "--target-dirs",
+        nargs="*",
+        default=None,
+        help="Specific directories to evaluate for offload (defaults to manifest targets)",
+    )
+    p_toff.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate offload without executing rclone move",
+    )
+    p_toff.add_argument("--json", action="store_true", help="Output offload result as JSON")
+
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
     p_unarch.add_argument("archive_file", help="Path to .unp archive file")
@@ -459,6 +483,7 @@ def main() -> None:
             "circuits", "steer", "profile", "surprisal", "audit", "layer-audit",
             "replow", "replow_pipeline", "eval", "replow_eval", "bundle", "unbundle",
             "till-init", "till-train", "till_init", "till_train",
+            "till-guard-offload", "till_guard_offload", "till-offload", "till_offload",
         ],
         help="Task action",
     )
@@ -1050,6 +1075,34 @@ def main() -> None:
             print(json.dumps(report.to_dict(), indent=2))
         else:
             print(report.format_table())
+
+    elif args.command in ("till-guard-offload", "till-offload"):
+        is_json = getattr(args, "json", False)
+        guardian = TillDiskGuardian(manifest_path=args.manifest)
+        telem = guardian.check_disk()
+        if not is_json:
+            print(
+                f"[DiskGuardian] Partition Telemetry: {telem.free_gb} GB free "
+                f"({telem.free_percent}%)"
+            )
+        satisfied = guardian.enforce_space(
+            target_dirs=args.target_dirs,
+            dry_run=args.dry_run,
+            verbose=not is_json,
+        )
+        post_telem = guardian.check_disk()
+        if is_json:
+            print(json.dumps({
+                "status": "SATISFIED" if satisfied else "OFFLOAD_FAILED",
+                "initial_telemetry": telem.to_dict(),
+                "post_telemetry": post_telem.to_dict(),
+                "dry_run": args.dry_run,
+            }, indent=2))
+        else:
+            if satisfied:
+                print(f"[+] Storage threshold satisfied (>= {guardian.min_free_pct}%).")
+            else:
+                print("[-] Warning: Storage threshold not satisfied.", file=sys.stderr)
 
     elif args.command in ("archive", "pack"):
         text = args.text
