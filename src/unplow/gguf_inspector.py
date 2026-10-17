@@ -29,6 +29,7 @@ GGML_TYPE_F32 = 0
 GGML_TYPE_F16 = 1
 GGML_TYPE_Q4_0 = 2
 GGML_TYPE_Q8_0 = 8
+GGML_TYPE_Q6_K = 14
 
 GGML_TYPE_NAMES: Dict[int, str] = {
     0: "F32",
@@ -53,6 +54,7 @@ GGML_BLOCK_SPECS: Dict[int, Tuple[int, int]] = {
     GGML_TYPE_F16: (1, 2),
     GGML_TYPE_Q4_0: (32, 18),  # 2-byte fp16 scale + 16 bytes (32 x 4-bit nibbles)
     GGML_TYPE_Q8_0: (32, 34),  # 2-byte fp16 scale + 32 bytes (32 x int8 quants)
+    GGML_TYPE_Q6_K: (256, 210),  # 128B ql + 64B qh + 16B sc + 2B fp16 d
 }
 
 
@@ -270,6 +272,52 @@ class GGUFBinaryInspector:
             )
             return (scales * quants).reshape(-1)
 
+        if ggml_type == GGML_TYPE_Q6_K:
+            # Each 210-byte block has 128 bytes ql, 64 bytes qh, 16 bytes scales, 2 bytes fp16 d
+            num_blocks = num_elements // 256
+            raw_arr = np.frombuffer(
+                raw_bytes, dtype=np.uint8, count=num_blocks * 210
+            ).reshape(num_blocks, 210)
+
+            ql = raw_arr[:, :128]
+            qh = raw_arr[:, 128:192]
+            sc = raw_arr[:, 192:208].view(np.int8).astype(np.float32)
+            d = raw_arr[:, 208:210].copy().view(np.float16).astype(np.float32)
+
+            idx_0 = [0] * 16 + [1] * 16
+            idx_2 = [2] * 16 + [3] * 16
+            idx_4 = [4] * 16 + [5] * 16
+            idx_6 = [6] * 16 + [7] * 16
+
+            halves = []
+            for h in range(2):
+                ql_sub = ql[:, h * 64 : (h + 1) * 64]
+                qh_sub = qh[:, h * 32 : (h + 1) * 32]
+                sc_sub = sc[:, h * 8 : (h + 1) * 8]
+
+                ql_low = ql_sub[:, :32].astype(np.int32)
+                ql_high = ql_sub[:, 32:64].astype(np.int32)
+                qh_l = qh_sub.astype(np.int32)
+
+                q1 = ((ql_low & 0x0F) | (((qh_l >> 0) & 3) << 4)) - 32
+                q2 = ((ql_high & 0x0F) | (((qh_l >> 2) & 3) << 4)) - 32
+                q3 = ((ql_low >> 4) | (((qh_l >> 4) & 3) << 4)) - 32
+                q4 = ((ql_high >> 4) | (((qh_l >> 6) & 3) << 4)) - 32
+
+                sc0 = sc_sub[:, idx_0]
+                sc2 = sc_sub[:, idx_2]
+                sc4 = sc_sub[:, idx_4]
+                sc6 = sc_sub[:, idx_6]
+
+                y1 = d * sc0 * q1
+                y2 = d * sc2 * q2
+                y3 = d * sc4 * q3
+                y4 = d * sc6 * q4
+
+                halves.append(np.concatenate([y1, y2, y3, y4], axis=1))
+
+            return np.concatenate(halves, axis=1).reshape(-1).astype(np.float32)
+
         raise ValueError(
             f"Unsupported GGML quantization type for direct dequant: {ggml_type}"
         )
@@ -286,7 +334,7 @@ class GGUFBinaryInspector:
         if t_info.ggml_type not in GGML_BLOCK_SPECS:
             raise ValueError(
                 f"Tensor {tensor_name} uses {t_info.ggml_type_name}; "
-                f"supported types: F32, F16, Q4_0, Q8_0"
+                f"supported types: F32, F16, Q4_0, Q8_0, Q6_K"
             )
 
         block_elems, block_bytes = GGML_BLOCK_SPECS[t_info.ggml_type]

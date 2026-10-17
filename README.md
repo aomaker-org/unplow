@@ -87,6 +87,21 @@ payload, this problem splits into two distinct mathematical paradigms:
   - Blends static LLM softmax, Order-0 unigram frequencies, and Order-1 Markov
     bigram transition probabilities ($P_{\text{bi}}(x_t \mid x_{t-1})$) under
     `.unp` container header Bit 2 (`FLAG_BIGRAM_CACHE = 0x04`).
+- **Cross-Substrate Task Vectors & Differential Steering (Phase 6)**:
+  - Memory-maps GGUF models on disk to compute $\Delta W_{\text{down}}^{(l)} =
+    W_{\text{GGUF}}^{(l)} - W_{\text{Safetensors}}^{(l)}$ without dual-model RAM
+    overhead (Ilharco et al., 2023; Nasr et al., 2023).
+  - Projects principal left singular vector $\mathbf{u}_{\Delta, 1}$ through
+    model RMSNorm and `lm_head` (Logit Lens) to analyze vocabulary shifts.
+  - Injects directional impulses into the residual stream via forward hooks,
+    steering generation along cross-model specialization subspaces.
+- **Online Bayesian Context-Tree Switching (CTS) Mixture Coding (Phase 6)**:
+  - Adapts 3-expert posterior weights $\mathbf{w}_t = (w_{\text{LLM}},
+    w_{\text{uni}}, w_{\text{bi}})$ dynamically using Vovk's aggregating
+    algorithm with switching floor $\alpha=0.03$ (Willems et al., 1995;
+    Vovk, 1990; Veness et al., 2012).
+  - Assigned to container header Bit 3 (`FLAG_BAYES_MIXER = 0x08`), completing
+    every bit in the 8-bit `.unp` header flag register with zero side bits.
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -201,6 +216,21 @@ uv run unplow archive \
   --text "Lossless bigram test." --bigram-mix -o test_bg.unp
 ```
 
+### 17. Cross-Substrate Task-Vector Forensics & Steering (Phase 6)
+
+```bash
+uv run unplow task-vector \
+  --gguf /home/fekerr/ai_models/qwen2.5-coder-1.5b.gguf \
+  --layer 16 --steer --gain 2.5 --prompt "/* "
+```
+
+### 18. Pack Container with Online Bayesian CTS Dynamic Mixture (Phase 6)
+
+```bash
+uv run unplow archive \
+  --file pyproject.toml --bayes-mix -o pyproject.unp
+```
+
 ---
 
 ## Testing
@@ -230,6 +260,7 @@ unplow/
 │       ├── cli.py           # Command-line interface
 │       ├── conditioning.py  # Domain prior pre-warming & fast PyTorch CDF
 │       ├── container.py     # 18-byte framed .unp binary container
+│       ├── ctw_coder.py     # Online Bayesian CTS mixture arithmetic coding
 │       ├── forensics.py     # Cryptographic audit ledger & telemetry
 │       ├── gguf_inspector.py# GGUF v2/v3 parser & block dequantizer
 │       ├── mechanistic.py   # Direct layer logit lens inspection
@@ -240,6 +271,7 @@ unplow/
 │       ├── safety.py        # Air-gap enforcer & additive file safety
 │       ├── steering.py      # RMSNorm-folded lens & activation steering
 │       ├── subspace_coder.py# SVD subspace steering & Markov bigram cache
+│       ├── task_vectors.py  # Cross-substrate task vectors & SVD steering
 │       └── worker.py        # Decompression worker daemon
 ├── models/
 │   ├── configs/             # Model configurations
@@ -284,10 +316,16 @@ unplow/
 - **Frans Willems, Yuri Shtarkov, & Tjalling Tjalkens (1995):**
   *The Context-Tree Weighting Method: Basic Properties*
   (IEEE Trans. Inf. Theory).
+- **Volodya Vovk (1990):** *Aggregating Strategies* (Proc. 3rd Annu. Workshop
+  Comput. Learn. Theory).
+- **Joel Veness, Kee Siong Ng, Marcus Hutter, William Uther, & David Silver
+  (2012):** *Context Tree Switching* (IEEE Trans. Inf. Theory).
 - **Roland Kuhn & Renato De Mori (1990):** *A Cache-Based Natural Language Model
   for Speech Recognition* (IEEE TPAMI).
 - **Nicholas Carlini et al. (2021):** *Extracting Training Data from Large
   Language Models* (USENIX Security 2021).
+- **Milad Nasr, Nicholas Carlini, et al. (2023):** *Scalable Extraction of
+  Training Data from (Production) Language Models*.
 - **Fabrice Bellard (2019-2021):** `NNCP` and `ts_zip` neural compressors.
 - **Tim Dettmers et al. (2022):** *LLM.int8(): 8-bit Matrix Multiplication
   for Transformers at Scale* (NeurIPS 2022).

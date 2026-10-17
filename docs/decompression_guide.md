@@ -173,4 +173,40 @@ steering:
 2. Activated via container header Bit 2 (`FLAG_BIGRAM_CACHE = 0x04`),
    dramatically compressing repeated multi-token phrases and identifiers.
 
+---
+
+## 8. Phase 6: Cross-Substrate Task Vectors & Bayesian CTS Coding
+
+Phase 6 introduces cross-substrate weight vector arithmetic and dynamic
+online Bayesian mixture adaptation:
+
+### A. Cross-Substrate Task-Vector Forensics & Steering
+Extract the task vector $\Delta W = W_{\text{GGUF}} - W_{\text{Safetensors}}$,
+project its top singular vector $\mathbf{u}_{\Delta, 1}$ through the
+Logit Lens, and steer generation:
+```bash
+unplow task-vector \
+  --gguf /home/fekerr/ai_models/qwen2.5-coder-1.5b.gguf \
+  --layer 16 \
+  --steer \
+  --gain 2.5 \
+  --prompt "/* "
+```
+This isolates domain specialization (e.g. Coder vs Instruct) without loading
+two models into memory.
+
+### B. Online Bayesian Context-Tree Switching (CTS) Mixture Coding
+Dynamically adapts expert weights $(w_{\text{LLM}}, w_{\text{uni}},
+w_{\text{bi}})$ via Vovk's aggregating algorithm with switching floor
+$\alpha=0.03$:
+```bash
+# Archive with online Bayesian CTS dynamic mixture
+unplow archive --file pyproject.toml -o pyproject.unp --bayes-mix
+
+# Unarchive verified payload
+unplow unarchive pyproject.unp
+```
+Activated via container Bit 3 (`FLAG_BAYES_MIXER = 0x08`), achieving zero-bit
+adaptation across heterogeneous text structures.
+
 <!-- end of file: unplow/docs/decompression_guide.md -->

@@ -279,6 +279,7 @@ class MockCausalLM(nn.Module):
 
     def __init__(self, vocab_size: int = 260, hidden_dim: int = 32):
         super().__init__()
+        torch.manual_seed(42)
         self.vocab_size = vocab_size
         self.model = MockModelBody(vocab_size=vocab_size, hidden_dim=hidden_dim, num_layers=4)
         self.embed = self.model.embed_tokens

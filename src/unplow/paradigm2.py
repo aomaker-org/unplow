@@ -21,6 +21,7 @@ import numpy as np
 import torch
 
 from .cache_coder import OnlinePrefixCacheCDF
+from .ctw_coder import FLAG_BAYES_MIXER, BayesianCTSMixerCDF
 from .subspace_coder import Order1BigramCacheCDF
 from .conditioning import (
     logits_to_integer_cdf_fast,
@@ -159,6 +160,9 @@ class LLMArithmeticCodec:
         bigram_cache: Optional[bool] = None,
         unigram_weight: float = 0.06,
         bigram_weight: float = 0.14,
+        enable_bayes_mixer: bool = False,
+        use_bayes_mixer: Optional[bool] = None,
+        bayes_mixer: Optional[bool] = None,
     ) -> Tuple[bytes, int, CompressionStats]:
         """Compress text into an arithmetic bitstream using the LLM distribution.
 
@@ -170,6 +174,10 @@ class LLMArithmeticCodec:
             enable_bigram_cache = use_bigram_cache
         if bigram_cache is not None:
             enable_bigram_cache = bigram_cache
+        if use_bayes_mixer is not None:
+            enable_bayes_mixer = use_bayes_mixer
+        if bayes_mixer is not None:
+            enable_bayes_mixer = bayes_mixer
 
         token_ids = self.tokenizer.encode(text, add_special_tokens=False)
         num_tokens = len(token_ids)
@@ -204,7 +212,9 @@ class LLMArithmeticCodec:
         cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
         v_size = max(tok_v, cfg_v, 256)
 
-        if enable_bigram_cache:
+        if enable_bayes_mixer:
+            cache = BayesianCTSMixerCDF(vocab_size=v_size)
+        elif enable_bigram_cache:
             cache = Order1BigramCacheCDF(
                 vocab_size=v_size,
                 unigram_weight=unigram_weight,
@@ -225,7 +235,9 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            if isinstance(cache, Order1BigramCacheCDF):
+            if isinstance(cache, BayesianCTSMixerCDF):
+                cdf = cache.logits_to_bayes_mixed_cdf(outputs.logits[0, -1, :])
+            elif isinstance(cache, Order1BigramCacheCDF):
                 cdf = cache.logits_to_bigram_mixed_cdf(outputs.logits[0, -1, :])
             elif cache is not None:
                 cdf = cache.logits_to_mixed_integer_cdf(outputs.logits[0, -1, :])
@@ -305,6 +317,9 @@ class LLMArithmeticCodec:
         bigram_cache: Optional[bool] = None,
         unigram_weight: float = 0.06,
         bigram_weight: float = 0.14,
+        enable_bayes_mixer: bool = False,
+        use_bayes_mixer: Optional[bool] = None,
+        bayes_mixer: Optional[bool] = None,
     ) -> str:
         """Decompress an arithmetic bitstream back to exact original text.
 
@@ -317,6 +332,10 @@ class LLMArithmeticCodec:
             enable_bigram_cache = use_bigram_cache
         if bigram_cache is not None:
             enable_bigram_cache = bigram_cache
+        if use_bayes_mixer is not None:
+            enable_bayes_mixer = use_bayes_mixer
+        if bayes_mixer is not None:
+            enable_bayes_mixer = bayes_mixer
 
         bits: List[int] = []
         for byte_val in compressed_bytes:
@@ -356,7 +375,9 @@ class LLMArithmeticCodec:
         cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
         v_size = max(tok_v, cfg_v, 256)
 
-        if enable_bigram_cache:
+        if enable_bayes_mixer:
+            cache = BayesianCTSMixerCDF(vocab_size=v_size)
+        elif enable_bigram_cache:
             cache = Order1BigramCacheCDF(
                 vocab_size=v_size,
                 unigram_weight=unigram_weight,
@@ -377,7 +398,9 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            if isinstance(cache, Order1BigramCacheCDF):
+            if isinstance(cache, BayesianCTSMixerCDF):
+                cdf = cache.logits_to_bayes_mixed_cdf(outputs.logits[0, -1, :])
+            elif isinstance(cache, Order1BigramCacheCDF):
                 cdf = cache.logits_to_bigram_mixed_cdf(outputs.logits[0, -1, :])
             elif cache is not None:
                 cdf = cache.logits_to_mixed_integer_cdf(outputs.logits[0, -1, :])
@@ -432,6 +455,9 @@ class LLMArithmeticCodec:
         bigram_cache: Optional[bool] = None,
         unigram_weight: float = 0.06,
         bigram_weight: float = 0.14,
+        enable_bayes_mixer: bool = False,
+        use_bayes_mixer: Optional[bool] = None,
+        bayes_mixer: Optional[bool] = None,
         auto_domain: bool = False,
     ) -> ContainerResult:
         """Compress text directly into a self-verifying .unp binary archive."""
@@ -441,6 +467,10 @@ class LLMArithmeticCodec:
             enable_bigram_cache = use_bigram_cache
         if bigram_cache is not None:
             enable_bigram_cache = bigram_cache
+        if use_bayes_mixer is not None:
+            enable_bayes_mixer = use_bayes_mixer
+        if bayes_mixer is not None:
+            enable_bayes_mixer = bayes_mixer
 
         if auto_domain or domain_id == "auto":
             best_id, _, _ = select_optimal_domain_mdl(
@@ -463,6 +493,7 @@ class LLMArithmeticCodec:
             enable_bigram_cache=enable_bigram_cache,
             unigram_weight=unigram_weight,
             bigram_weight=bigram_weight,
+            enable_bayes_mixer=enable_bayes_mixer,
         )
         container_bytes = pack_unp_container(
             bitstream=payload,
@@ -473,6 +504,7 @@ class LLMArithmeticCodec:
             domain_id=dom_int,
             enable_cache_mixture=enable_cache_mixture,
             enable_bigram_cache=enable_bigram_cache,
+            enable_bayes_mixer=enable_bayes_mixer,
         )
         meta, _ = unpack_unp_container(container_bytes)
         return ContainerResult(container_bytes, meta, stats)
@@ -482,6 +514,7 @@ class LLMArithmeticCodec:
         container_bytes: Union[bytes, Tuple[Any, ...]],
         use_cache_mixture: Optional[bool] = None,
         use_bigram_cache: Optional[bool] = None,
+        use_bayes_mixer: Optional[bool] = None,
     ) -> DecompressResult:
         """Decompress a .unp binary archive and verify cryptographic integrity."""
         if isinstance(container_bytes, (tuple, list)):
@@ -490,6 +523,7 @@ class LLMArithmeticCodec:
         meta, bitstream = unpack_unp_container(container_bytes)
         cache_mix = meta.is_cache_mixture_enabled if use_cache_mixture is None else use_cache_mixture
         bigram_mix = meta.is_bigram_cache_enabled if use_bigram_cache is None else use_bigram_cache
+        bayes_mix = meta.is_bayes_mixer_enabled if use_bayes_mixer is None else use_bayes_mixer
         text = self.decompress(
             bitstream,
             num_tokens=meta.num_tokens,
@@ -497,6 +531,7 @@ class LLMArithmeticCodec:
             domain_id=meta.domain_id,
             enable_cache_mixture=cache_mix,
             enable_bigram_cache=bigram_mix,
+            enable_bayes_mixer=bayes_mix,
         )
         is_valid = verify_unp_checksum(meta, text)
         return DecompressResult(text, meta, is_valid)

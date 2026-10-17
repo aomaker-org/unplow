@@ -188,6 +188,7 @@ class DecompressionWorker:
                 domain_id = task.extra.get("domain_id", 0)
                 cache_mix = task.extra.get("cache_mixture", task.extra.get("cache_mix", False))
                 bigram_mix = task.extra.get("bigram_mixture", task.extra.get("bigram_mix", False))
+                bayes_mix = task.extra.get("bayes_mixture", task.extra.get("bayes_mix", False))
                 codec = self.get_p2_codec()
                 container_bytes, meta, stats = codec.compress_to_container(
                     text,
@@ -196,6 +197,7 @@ class DecompressionWorker:
                     domain_id=domain_id,
                     enable_cache_mixture=cache_mix,
                     enable_bigram_cache=bigram_mix,
+                    enable_bayes_mixer=bayes_mix,
                 )
                 b64_container = base64.b64encode(container_bytes).decode("ascii")
 
@@ -380,6 +382,49 @@ class DecompressionWorker:
                 }
                 result_json = json.dumps(output_dict, indent=2)
                 art_path = self.work_products_dir / f"{task.task_id}_subspace.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
+                self.processed_count += 1
+
+            elif action in ("task-vector", "task_vector", "tv"):
+                import torch
+                from .models import load_causal_lm
+                from .task_vectors import CrossSubstrateTaskVectorEngine
+
+                tok, mod, mod_path = load_causal_lm(model_identifier=self.model_name, dtype=torch.float32)
+                engine = CrossSubstrateTaskVectorEngine(mod, tok)
+                gguf_path = task.extra.get("gguf", task.payload)
+                layer_idx = task.extra.get("layer", 16)
+                top_k_tok = task.extra.get("top_k_tokens", 6)
+                top_k_neu = task.extra.get("top_k_neurons", 6)
+                steer = task.extra.get("steer", False)
+
+                vec, report = engine.compute_layer_task_vector(
+                    gguf_path=gguf_path,
+                    layer_idx=layer_idx,
+                    top_k_tokens=top_k_tok,
+                    top_k_neurons=top_k_neu,
+                )
+                steered_rec = None
+                if steer:
+                    steered_rec = engine.steer_with_gguf_task_vector(
+                        gguf_path=gguf_path,
+                        layer_idx=layer_idx,
+                        seed_prompt=task.extra.get("prompt", "def "),
+                        seq_len=task.extra.get("seq_len", 48),
+                        steering_gain=task.extra.get("gain", 4.5),
+                        steering_steps=task.extra.get("steps", 16),
+                        temperature=task.extra.get("temperature", 0.25),
+                    )
+
+                output_dict = {
+                    "action": "task_vector",
+                    "model": mod_path,
+                    "report": report.to_dict(),
+                    "steered": steered_rec.to_dict() if steered_rec is not None else None,
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_task_vector.json"
                 self.file_handler.write_additive_text(art_path, result_json)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
                 self.processed_count += 1

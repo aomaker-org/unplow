@@ -34,6 +34,7 @@ from .conditioning import (
     unpack_flags_with_domain,
 )
 from .container import (
+    FLAG_BAYES_MIXER,
     FLAG_BIGRAM_CACHE,
     FLAG_CACHE_MIXTURE,
     FLAG_LOSSLESS_VERIFIED,
@@ -47,6 +48,10 @@ from .container import (
     slice_kv_cache,
     unpack_unp_container,
     verify_unp_checksum,
+)
+from .ctw_coder import (
+    BayesTrajectoryStep,
+    BayesianCTSMixerCDF,
 )
 from .forensics import (
     ForensicAuditLogger,
@@ -116,20 +121,28 @@ from .subspace_coder import (
     SVDSubspaceSteeringEngine,
     SubspaceSteeringRecord,
 )
+from .task_vectors import (
+    CrossSubstrateTaskVectorEngine,
+    TaskVectorSpectrumReport,
+    TaskVectorSteeredRecord,
+)
 from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "AdditiveFileHandler",
     "AirGapViolationError",
     "AssociativeCircuitTrace",
+    "BayesTrajectoryStep",
+    "BayesianCTSMixerCDF",
     "CANONICAL_ROOT_FILES",
     "CANONICAL_SOURCE_DIRS",
     "CompressionStats",
     "ContainerResult",
+    "CrossSubstrateTaskVectorEngine",
     "DOMAIN_NAME_TO_ID",
     "DOMAIN_PRIORS",
     "DecompressResult",
@@ -137,6 +150,7 @@ __all__ = [
     "DeterministicMockCausalLM",
     "DeterministicMockTokenizer",
     "ExtractedRecord",
+    "FLAG_BAYES_MIXER",
     "FLAG_BIGRAM_CACHE",
     "FLAG_CACHE_MIXTURE",
     "FLAG_LOSSLESS_VERIFIED",
@@ -172,6 +186,8 @@ __all__ = [
     "TOTAL_FREQ",
     "Task",
     "TaskStatus",
+    "TaskVectorSpectrumReport",
+    "TaskVectorSteeredRecord",
     "TokenSurprisalEntry",
     "UNP_HEADER_FORMAT",
     "UNP_HEADER_SIZE",
