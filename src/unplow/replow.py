@@ -117,6 +117,25 @@ class ReplowEngine:
         Runs a lightweight PyTorch gradient update loop over trainable model
         parameters using cross-entropy next-token prediction loss.
         """
+        # Memory safety guard: for large models (> 10M params) on CPU,
+        # freeze the backbone and isolate the final transformer layer / adapter
+        total_params = sum(p.numel() for p in self.model.parameters())
+        if total_params > 10_000_000:
+            for p in self.model.parameters():
+                p.requires_grad = False
+            unfrozen = False
+            if hasattr(self.model, "model") and hasattr(self.model.model, "layers") and self.model.model.layers:
+                for p in self.model.model.layers[-1].parameters():
+                    p.requires_grad = True
+                unfrozen = True
+            elif hasattr(self.model, "layers") and self.model.layers:
+                for p in self.model.layers[-1].parameters():
+                    p.requires_grad = True
+                unfrozen = True
+            if not unfrozen:
+                for p in list(self.model.parameters())[-4:]:
+                    p.requires_grad = True
+
         trainable = [p for p in self.model.parameters() if p.requires_grad]
         if not trainable:
             return 0.0
