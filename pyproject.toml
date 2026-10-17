@@ -1,6 +1,9 @@
+# Path: unplow/pyproject.toml
+# Package configuration for unplow
+
 [project]
 name = "unplow"
-version = "0.10.0"
+version = "0.11.0"
 description = "Autonomous LLM decompression engine, latent manifold extractor, and arithmetic codec"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,3 +37,5 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+# end of file: unplow/pyproject.toml

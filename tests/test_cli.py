@@ -301,4 +301,48 @@ def test_cli_bundle_and_unbundle_mock(tmp_path):
     assert (restore_dir / "test.py").read_text(encoding="utf-8") == "x = 42\n"
 
 
+def test_cli_till_init(tmp_path):
+    corpus_base = tmp_path / "till_corpus"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "till-init",
+            "--corpus-dir", str(corpus_base),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert "telemetry" in data
+    assert "python" in data["domains"]
+    assert (corpus_base / "python").exists()
+
+
+def test_cli_till_train(tmp_path):
+    corpus_dir = tmp_path / "sample_corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "sample.py").write_text("def ping(): return 'pong'\n", encoding="utf-8")
+    out_unp = tmp_path / "till_sample.unp"
+
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "unplow.cli", "till-train",
+            "--domain", "python",
+            "--corpus", str(corpus_dir),
+            "-o", str(out_unp),
+            "-m", "mock",
+            "--train-steps", "1",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["domain"] == "python"
+    assert data["domain_id"] == 2
+    assert out_unp.exists()
+
+
 # end of file: unplow/tests/test_cli.py

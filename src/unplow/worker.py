@@ -27,6 +27,7 @@ from .paradigm1 import WeightDecompressor
 from .paradigm2 import LLMArithmeticCodec
 from .queue import FileTaskQueue, Task, TaskStatus
 from .safety import AdditiveFileHandler
+from .till_guard import init_till_staging, train_till_domain
 
 logger = logging.getLogger("unplow.worker")
 
@@ -575,6 +576,52 @@ class DecompressionWorker:
                 art_path = self.work_products_dir / f"{task.task_id}_unbundle.json"
                 self.file_handler.write_additive_text(art_path, result_json)
                 self.queue.complete_task(task, proc_path, result=result_json, model_used=mod_path)
+                self.processed_count += 1
+
+            elif task.action in ("till-init", "till_init"):
+                extra = task.extra or {}
+                manifest_path = extra.get("manifest") or task.payload or "workspace/till_manifest.toml"
+                corpus_dir = extra.get("corpus_dir") or "workspace/till_corpus"
+
+                res = init_till_staging(
+                    manifest_path=manifest_path,
+                    base_corpus_dir=corpus_dir,
+                )
+                output_dict = {
+                    "action": "till-init",
+                    "staging": res,
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_till_init.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used="system")
+                self.processed_count += 1
+
+            elif task.action in ("till-train", "till_train"):
+                extra = task.extra or {}
+                domain = extra.get("domain") or task.payload or "python"
+                corpus = extra.get("corpus")
+                output_unp = extra.get("output") or str(
+                    self.work_products_dir / f"{task.task_id}_till_{domain}.unp"
+                )
+                train_steps = int(extra.get("train_steps", 1))
+
+                report = train_till_domain(
+                    domain=domain,
+                    corpus_dir=corpus,
+                    output_unp_path=output_unp,
+                    model_name=self.model_name or "mock",
+                    train_steps=train_steps,
+                )
+                output_dict = {
+                    "action": "till-train",
+                    "domain": domain,
+                    "report": report.to_dict(),
+                }
+                result_json = json.dumps(output_dict, indent=2)
+                art_path = self.work_products_dir / f"{task.task_id}_till_train.json"
+                self.file_handler.write_additive_text(art_path, result_json)
+                self.queue.complete_task(task, proc_path, result=result_json, model_used=self.model_name or "mock")
                 self.processed_count += 1
 
             else:

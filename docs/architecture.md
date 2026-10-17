@@ -317,6 +317,37 @@ self-verifying, single `.unp` containers:
    the original hierarchical directory structure, and performs strict SHA-256
    checksum validation on every extracted file before completion.
 
+---
+
+## 15. Till Models: Disk Telemetry, Offload Manifest & Domain Staging
+
+Phase 11 introduces the Disk Guardian and Till Staging pipeline
+(`src/unplow/till_guard.py`), establishing automated disk telemetry, `rclone`
+offload synchronization, and domain-specialized training pipelines:
+
+1. **Storage Telemetry & 15% Free Space Guard (`TillDiskGuardian`)**:
+   Tracks real-time disk partition capacity via `shutil.disk_usage`, validating
+   that free disk space remains strictly at or above the 15% operational
+   threshold. If disk exhaustion is imminent, dispatches configured offload
+   transfers to Google Drive (`gdrive:transfer/till-20261017/`)
+   via `rclone move`.
+2. **Offload Manifest Framework (`workspace/till_manifest.toml`)**:
+   Declaratively catalogs offloadable caches (`uv/`, `pip/`, `ccache/`), aged
+   model checkpoints, and compressed `.unp` archive targets with configurable
+   retention policies.
+3. **Domain Corpus Staging (`init_till_staging`)**:
+   Stages isolated training corpora under `workspace/till_corpus/{domain}/`
+   across five specialization domains: `till-python` (AST stubs, `domain_id=2`),
+   `till-c` (POSIX & driver headers, `domain_id=3`), `till-cpp` (STL templates,
+   `domain_id=1`), `till-rust` (Cargo crates & macros, `domain_id=1`), and
+   `till-gencode` (polyglot translation pairs, `domain_id=0`).
+4. **Closed-Loop Distillation & Bayesian Archiving (`train_till_domain`)**:
+   Executes domain-specific PyTorch gradient update steps, persists adapter
+   metadata under `models/till-{domain}-lora/`, and compresses refactored code
+   directly into self-verifying `.unp` archives with Bayesian CTS
+   (`FLAG_BAYES_MIXER = 0x08`).
+
 <!-- end of file: unplow/docs/architecture.md -->
+
 
 

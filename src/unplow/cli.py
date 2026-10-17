@@ -39,6 +39,7 @@ from .paradigm1 import WeightDecompressor
 from .paradigm2 import LLMArithmeticCodec
 from .queue import FileTaskQueue
 from .task_vectors import CrossSubstrateTaskVectorEngine
+from .till_guard import TillDiskGuardian, init_till_staging, train_till_domain
 from .worker import DecompressionWorker
 
 
@@ -379,6 +380,50 @@ def main() -> None:
     p_unbundle.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
     p_unbundle.add_argument("--json", action="store_true", help="Output unbundle manifest as JSON")
 
+    # Command: till-init (Phase 11 Staging & Disk Telemetry)
+    p_tinit = subparsers.add_parser(
+        "till-init",
+        help="Initialize disk guard telemetry and stage till-* domain datasets",
+    )
+    p_tinit.add_argument(
+        "--manifest",
+        default="workspace/till_manifest.toml",
+        help="Path to till offload manifest (default: workspace/till_manifest.toml)",
+    )
+    p_tinit.add_argument(
+        "--corpus-dir",
+        default="workspace/till_corpus",
+        help="Base directory for domain training corpora (default: workspace/till_corpus)",
+    )
+    p_tinit.add_argument("--json", action="store_true", help="Output staging details as JSON")
+
+    # Command: till-train (Phase 11 Specialized Domain Distillation & Archiving)
+    p_ttrain = subparsers.add_parser(
+        "till-train",
+        help="Run domain-specific closed-loop distillation and Bayesian CTS archiving",
+    )
+    p_ttrain.add_argument(
+        "--domain",
+        required=True,
+        choices=["python", "c", "cpp", "rust", "gencode"],
+        help="Target specialization domain",
+    )
+    p_ttrain.add_argument(
+        "--corpus",
+        default=None,
+        help="Input corpus directory (defaults to workspace/till_corpus/<domain>/)",
+    )
+    p_ttrain.add_argument(
+        "-o", "--output",
+        default=None,
+        help="Output .unp archive path (defaults to workspace/targets/till_<domain>.unp)",
+    )
+    p_ttrain.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_ttrain.add_argument(
+        "--train-steps", type=int, default=1, help="Distillation training update steps (default: 1)"
+    )
+    p_ttrain.add_argument("--json", action="store_true", help="Output train report as JSON")
+
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
     p_unarch.add_argument("archive_file", help="Path to .unp archive file")
@@ -413,6 +458,7 @@ def main() -> None:
             "probe", "compress", "decompress", "manifold", "archive", "unarchive",
             "circuits", "steer", "profile", "surprisal", "audit", "layer-audit",
             "replow", "replow_pipeline", "eval", "replow_eval", "bundle", "unbundle",
+            "till-init", "till-train", "till_init", "till_train",
         ],
         help="Task action",
     )
@@ -966,6 +1012,44 @@ def main() -> None:
             print(json.dumps(report.to_dict(), indent=2))
         else:
             print(report.format_manifest_table())
+
+    elif args.command == "till-init":
+        is_json = getattr(args, "json", False)
+        if not is_json:
+            print("[*] Initializing till model staging & disk telemetry guard...")
+        res = init_till_staging(
+            manifest_path=args.manifest,
+            base_corpus_dir=args.corpus_dir,
+            verbose=not is_json,
+        )
+        if is_json:
+            print(json.dumps(res, indent=2))
+        else:
+            telem = res["telemetry"]
+            print(
+                f"[+] Disk Telemetry: Total={telem['total_gb']} GB, "
+                f"Free={telem['free_gb']} GB ({telem['free_percent']}%)"
+            )
+            print(f"[+] Staged {len(res['domains'])} domain corpora under {res['base_corpus_dir']}:")
+            for dom, info in res["domains"].items():
+                print(f"    - till-{dom:<8}: corpus={info['corpus_dir']} (Domain ID: {info['domain_id']})")
+
+    elif args.command == "till-train":
+        is_json = getattr(args, "json", False)
+        if not is_json:
+            print(f"[*] Starting till-{args.domain} distillation and Bayesian CTS archiving...")
+        report = train_till_domain(
+            domain=args.domain,
+            corpus_dir=args.corpus,
+            output_unp_path=args.output,
+            model_name=args.model,
+            train_steps=args.train_steps,
+            verbose=not is_json,
+        )
+        if is_json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(report.format_table())
 
     elif args.command in ("archive", "pack"):
         text = args.text

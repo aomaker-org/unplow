@@ -1,0 +1,33 @@
+# Path: unplow/workspace/till_manifest.toml
+# Disk Space Telemetry & Offload Target Configuration Manifest
+# Max Column: 80 Columns
+
+[manifest]
+version = "1.0.0"
+target_free_percentage = 15.0
+rclone_destination = "gdrive:transfer/till-20261017/"
+
+[offload_targets.caches]
+path = "~/.cache/"
+max_allowed_size_gb = 5.0
+items = [
+    "uv/",
+    "pip/",
+    "bazel/",
+    "ccache/",
+    "llama.cpp/"
+]
+
+[offload_targets.checkpoints]
+path = "models/"
+items = [
+    "qwen2.5-1.5b-instruct/",
+    "work_products/"
+]
+
+[offload_targets.archives]
+path = "workspace/targets/"
+pattern = "*.unp"
+retention_days = 3
+
+# end of file: unplow/workspace/till_manifest.toml

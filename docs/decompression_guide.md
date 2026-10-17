@@ -365,7 +365,54 @@ restore_report = bundler.unbundle_archive(
 print(f"Restored {restore_report.total_files} files successfully.")
 ```
 
+---
+
+## 13. Phase 11: Disk Telemetry, Offload Manifest & Till Model Training
+
+Phase 11 introduces the Disk Guardian (`src/unplow/till_guard.py`), offload
+manifest configuration (`workspace/till_manifest.toml`), and domain-specific
+model distillation pipelines across Python, C, C++, Rust, and polyglot code.
+
+### A. CLI Commands
+```bash
+# Audit disk utilization and verify >= 15% free threshold
+uv run python -c \
+  "from unplow.till_guard import TillDiskGuardian; \
+print(TillDiskGuardian().check_disk())"
+
+# Initialize disk telemetry and stage domain training corpora
+unplow till-init --manifest workspace/till_manifest.toml
+
+# Train specialized till domain model and compress with Bayesian CTS
+unplow till-train \
+  --domain python \
+  --corpus workspace/till_corpus/python/ \
+  -o workspace/targets/till_python.unp
+```
+
+### B. Python API Workflow
+```python
+from unplow.till_guard import (
+    TillDiskGuardian,
+    init_till_staging,
+    train_till_domain,
+)
+
+# 1. Inspect storage capacity
+guardian = TillDiskGuardian(min_free_pct=15.0)
+telemetry = guardian.check_disk()
+print(f"Free disk space: {telemetry.free_percent}%")
+
+# 2. Stage domain corpora
+staging_summary = init_till_staging()
+print(f"Staged {len(staging_summary['domains'])} domain targets.")
+
+# 3. Run closed-loop distillation
+report = train_till_domain(
+    domain="python",
+    train_steps=1,
+)
+print(report.format_table())
+```
+
 <!-- end of file: unplow/docs/decompression_guide.md -->
-
-
-

@@ -68,6 +68,8 @@ logs/tasks/
 /models/cache/
 /models/outputs/
 /models/qwen2.5-1.5b-instruct
+/models/till-*/
+/workspace/till_corpus/
 *.gguf
 *.bin
 *.safetensors
