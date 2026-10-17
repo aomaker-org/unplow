@@ -8,6 +8,7 @@ real-time heatmap & mosaic dashboard generation, metadata inspection,
 pan/zoom viewing, and visualization history.
 """
 
+import base64
 from datetime import datetime, timezone
 import getpass
 import glob
@@ -32,6 +33,7 @@ from .visualizer import (
     compile_images_to_apng,
     compute_tensor_metrics,
     encode_apng_rgb,
+    extract_apng_frames,
     read_png_metadata,
     render_checkpoint_dashboard,
     render_checkpoint_timelapse,
@@ -460,6 +462,7 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     cursor: pointer;
   }
   .playback-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+  .playback-btn.active { background: #003644; border-color: var(--cyan); color: var(--cyan); }
   .btn-submit {
     background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%);
     color: #ffffff;
@@ -803,8 +806,12 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
 
     <div class="video-toolbar" id="video-toolbar">
       <button class="playback-btn" id="btn-play-pause" onclick="togglePlayPause()">⏸ Pause</button>
-      <button class="playback-btn" onclick="stepFrame(-1)">◀ Prev</button>
-      <button class="playback-btn" onclick="stepFrame(1)">▶ Next</button>
+      <button class="playback-btn" onclick="stepFrame(-1)" title="Previous frame">◀ Prev</button>
+      <button class="playback-btn" onclick="stepFrame(1)" title="Next frame">▶ Next</button>
+      <button class="playback-btn" id="btn-ab-blink" onclick="toggleABBlink()"
+              title="Rapidly toggle current vs previous frame">⚡ A/B</button>
+      <button class="playback-btn" id="btn-diff-view" onclick="toggleDiffView()"
+              title="Toggle pixel difference vs previous frame">&plusmn; Diff</button>
       <input type="range" class="scrubber-slider" id="video-scrubber"
              min="1" max="1" value="1" oninput="onScrubVideo(this.value)">
       <span id="video-frame-indicator"
@@ -819,7 +826,7 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
 
     <div class="canvas-stage" id="stage">
       <img id="main-image" src="" alt="Neural Heatmap" style="display: none;">
-      <canvas id="canvas-freeze"
+      <canvas id="canvas-player"
               style="display: none; max-width: 100%; max-height: 100%; object-fit: contain;"></canvas>
     </div>
 
@@ -1061,58 +1068,198 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     }
   }
 
-  let isPaused = false;
+  let cachedFrames = [];
+  let currentFrameIdx = 0;
+  let isPlaying = false;
+  let animTimer = null;
+  let abBlinkTimer = null;
+  let isAbBlinking = false;
+  let isDiffView = false;
+  let playbackFps = 2.0;
+
+  function stopPlayback() {
+    isPlaying = false;
+    if (animTimer) {
+      clearInterval(animTimer);
+      animTimer = null;
+    }
+    if (abBlinkTimer) {
+      clearInterval(abBlinkTimer);
+      abBlinkTimer = null;
+    }
+    isAbBlinking = false;
+    const btnBlink = document.getElementById('btn-ab-blink');
+    if (btnBlink) btnBlink.classList.remove('active');
+    const btnPlay = document.getElementById('btn-play-pause');
+    if (btnPlay) btnPlay.textContent = '▶ Play';
+  }
+
+  function startPlayback() {
+    if (!cachedFrames || cachedFrames.length <= 1) return;
+    stopPlayback();
+    isPlaying = true;
+    const btnPlay = document.getElementById('btn-play-pause');
+    if (btnPlay) btnPlay.textContent = '⏸ Pause';
+    const interval = Math.max(20, Math.floor(1000.0 / playbackFps));
+    animTimer = setInterval(() => {
+      currentFrameIdx = (currentFrameIdx + 1) % cachedFrames.length;
+      drawCanvasFrame(currentFrameIdx);
+    }, interval);
+  }
 
   function togglePlayPause() {
-    const img = document.getElementById('main-image');
-    const cvs = document.getElementById('canvas-freeze');
-    const btn = document.getElementById('btn-play-pause');
-    if (!isPaused) {
-      cvs.width = img.naturalWidth || 512;
-      cvs.height = img.naturalHeight || 512;
-      const ctx = cvs.getContext('2d');
-      ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
-      img.style.display = 'none';
-      cvs.style.display = 'block';
-      btn.textContent = '▶ Play';
-      isPaused = true;
+    if (isPlaying) {
+      stopPlayback();
     } else {
-      cvs.style.display = 'none';
-      img.style.display = 'block';
-      btn.textContent = '⏸ Pause';
-      isPaused = false;
+      startPlayback();
     }
   }
 
   function stepFrame(delta) {
-    const scrubber = document.getElementById('video-scrubber');
-    const maxVal = parseInt(scrubber.max, 10) || 1;
-    let nextVal = parseInt(scrubber.value, 10) + delta;
-    if (nextVal < 1) nextVal = 1;
-    if (nextVal > maxVal) nextVal = maxVal;
-    scrubber.value = nextVal;
-    onScrubVideo(nextVal);
+    stopPlayback();
+    if (!cachedFrames || cachedFrames.length === 0) return;
+    currentFrameIdx = (currentFrameIdx + delta + cachedFrames.length) % cachedFrames.length;
+    drawCanvasFrame(currentFrameIdx);
   }
 
   function onScrubVideo(val) {
-    const scrubber = document.getElementById('video-scrubber');
-    const maxVal = parseInt(scrubber.max, 10) || 1;
-    document.getElementById('video-frame-indicator').textContent = `Frame ${val} / ${maxVal}`;
+    stopPlayback();
+    const idx = parseInt(val, 10) - 1;
+    if (cachedFrames && idx >= 0 && idx < cachedFrames.length) {
+      currentFrameIdx = idx;
+      drawCanvasFrame(currentFrameIdx);
+    }
   }
 
   function changePlaybackSpeed() {
-    // APNG standard playback rate is baked into frame delay chunks
+    const sel = document.getElementById('video-speed-select');
+    const speedMult = parseFloat(sel.value) || 1.0;
+    const baseFps = (activeImage && activeImage.fps) || 2.0;
+    playbackFps = baseFps * speedMult;
+    if (isPlaying) {
+      startPlayback();
+    }
+  }
+
+  function toggleABBlink() {
+    if (isAbBlinking) {
+      clearInterval(abBlinkTimer);
+      abBlinkTimer = null;
+      isAbBlinking = false;
+      document.getElementById('btn-ab-blink').classList.remove('active');
+      drawCanvasFrame(currentFrameIdx);
+      return;
+    }
+    stopPlayback();
+    if (!cachedFrames || cachedFrames.length <= 1) return;
+    isAbBlinking = true;
+    document.getElementById('btn-ab-blink').classList.add('active');
+    const prevIdx = (currentFrameIdx - 1 + cachedFrames.length) % cachedFrames.length;
+    let toggle = false;
+    abBlinkTimer = setInterval(() => {
+      toggle = !toggle;
+      drawCanvasFrame(toggle ? currentFrameIdx : prevIdx, false);
+      const ind = document.getElementById('video-frame-indicator');
+      if (ind) {
+        ind.textContent = toggle ? `Frame ${currentFrameIdx + 1} (B)` : `Frame ${prevIdx + 1} (A)`;
+      }
+    }, 250);
+  }
+
+  function toggleDiffView() {
+    isDiffView = !isDiffView;
+    const btn = document.getElementById('btn-diff-view');
+    if (btn) btn.classList.toggle('active', isDiffView);
+    drawCanvasFrame(currentFrameIdx);
+  }
+
+  function drawCanvasFrame(idx, updateIndicator = true) {
+    if (!cachedFrames || idx < 0 || idx >= cachedFrames.length) return;
+    const cvs = document.getElementById('canvas-player');
+    const ctx = cvs.getContext('2d');
+    const img = cachedFrames[idx];
+    if (cvs.width !== img.naturalWidth || cvs.height !== img.naturalHeight) {
+      cvs.width = img.naturalWidth || 512;
+      cvs.height = img.naturalHeight || 512;
+    }
+
+    if (isDiffView && idx > 0) {
+      const prevImg = cachedFrames[idx - 1];
+      ctx.drawImage(img, 0, 0);
+      const imgData1 = ctx.getImageData(0, 0, cvs.width, cvs.height);
+      ctx.drawImage(prevImg, 0, 0);
+      const imgData0 = ctx.getImageData(0, 0, cvs.width, cvs.height);
+      const diffData = ctx.createImageData(cvs.width, cvs.height);
+      for (let i = 0; i < imgData1.data.length; i += 4) {
+        const dr = Math.abs(imgData1.data[i] - imgData0.data[i]) * 4;
+        const dg = Math.abs(imgData1.data[i + 1] - imgData0.data[i + 1]) * 4;
+        const db = Math.abs(imgData1.data[i + 2] - imgData0.data[i + 2]) * 4;
+        diffData.data[i] = Math.min(255, dr);
+        diffData.data[i + 1] = Math.min(255, dg + 30);
+        diffData.data[i + 2] = Math.min(255, db + 60);
+        diffData.data[i + 3] = 255;
+      }
+      ctx.putImageData(diffData, 0, 0);
+    } else {
+      ctx.drawImage(img, 0, 0);
+    }
+
+    if (updateIndicator) {
+      const scrubber = document.getElementById('video-scrubber');
+      if (scrubber) scrubber.value = idx + 1;
+      const indicator = document.getElementById('video-frame-indicator');
+      if (indicator) indicator.textContent = `Frame ${idx + 1} / ${cachedFrames.length}`;
+    }
+  }
+
+  async function loadTimelapseFrames(filename) {
+    try {
+      const resp = await fetch(`/api/timelapse/frames?filename=${encodeURIComponent(filename)}`);
+      const data = await resp.json();
+      if (data.status === 'success' && data.frames && data.frames.length > 0) {
+        cachedFrames = [];
+        let loaded = 0;
+        data.frames.forEach((dataUrl) => {
+          const img = new Image();
+          img.onload = () => {
+            loaded++;
+            if (loaded === 1 && currentFrameIdx === 0) {
+              drawCanvasFrame(0);
+            }
+          };
+          img.src = dataUrl;
+          cachedFrames.push(img);
+        });
+
+        currentFrameIdx = 0;
+        const scrubber = document.getElementById('video-scrubber');
+        scrubber.max = data.frames.length;
+        scrubber.value = 1;
+        document.getElementById('video-frame-indicator').textContent =
+          `Frame 1 / ${data.frames.length}`;
+
+        playbackFps = data.fps || 2.0;
+        const sel = document.getElementById('video-speed-select');
+        const speedMult = parseFloat(sel.value) || 1.0;
+        playbackFps = playbackFps * speedMult;
+
+        const mainImg = document.getElementById('main-image');
+        mainImg.style.display = 'none';
+        const cvs = document.getElementById('canvas-player');
+        cvs.style.display = 'block';
+
+        startPlayback();
+      }
+    } catch (err) {
+      console.error('Failed to load timelapse frames', err);
+    }
   }
 
   function selectActiveImage(imgData) {
+    stopPlayback();
     activeImage = imgData;
     const mainImg = document.getElementById('main-image');
-    mainImg.src = imgData.url;
-    mainImg.style.display = 'block';
-    const cvs = document.getElementById('canvas-freeze');
-    cvs.style.display = 'none';
-    isPaused = false;
-    document.getElementById('btn-play-pause').textContent = '⏸ Pause';
+    const cvs = document.getElementById('canvas-player');
 
     document.querySelectorAll('.gallery-thumb').forEach(t => {
       t.classList.toggle('active', t.title.startsWith(imgData.filename));
@@ -1121,20 +1268,17 @@ SPA_HTML_TEMPLATE = """<!DOCTYPE html>
     const isTl = (
       imgData.is_timelapse
       || (imgData.raw_metadata && (imgData.raw_metadata.TotalFrames || imgData.raw_metadata.FrameCount))
+      || imgData.filename.startsWith('timelapse_')
     );
     const vToolbar = document.getElementById('video-toolbar');
     vToolbar.style.display = isTl ? 'flex' : 'none';
 
     if (isTl) {
-      const fc = (
-        imgData.frames_count
-        || (imgData.raw_metadata && (imgData.raw_metadata.TotalFrames || imgData.raw_metadata.FrameCount))
-        || 32
-      );
-      const scrubber = document.getElementById('video-scrubber');
-      scrubber.max = fc;
-      scrubber.value = 1;
-      document.getElementById('video-frame-indicator').textContent = `Frame 1 / ${fc}`;
+      loadTimelapseFrames(imgData.filename);
+    } else {
+      cvs.style.display = 'none';
+      mainImg.src = imgData.url;
+      mainImg.style.display = 'block';
     }
 
     document.getElementById('view-filename').textContent = imgData.filename;
@@ -1313,6 +1457,43 @@ class UnplowWebHandler(http.server.BaseHTTPRequestHandler):
                     "ssh_command": f"ssh -L {port}:localhost:{port} {username}@{hostname}",
                     "is_headless": get_headless_status(),
                 },
+            })
+            return
+
+        if path == "/api/timelapse/frames":
+            query = urllib.parse.parse_qs(parsed.query)
+            filename = query.get("filename", [None])[0]
+            out_dir = Path("workspace/visualizations")
+            if filename:
+                target_p = out_dir / filename
+            else:
+                domain = query.get("domain", ["python"])[0].replace("till-", "")
+                mode = query.get("mode", ["delta"])[0]
+                matches = sorted(
+                    out_dir.glob(f"timelapse_{domain}_{mode}*.png"),
+                    key=lambda f: f.stat().st_mtime,
+                    reverse=True,
+                )
+                target_p = matches[0] if matches else None
+
+            if not target_p or not target_p.exists():
+                self.send_json({"status": "error", "error": "Timelapse file not found"}, 404)
+                return
+
+            apng_bytes = target_p.read_bytes()
+            extracted = extract_apng_frames(apng_bytes)
+            meta = read_png_metadata(target_p)
+            frames_b64 = [
+                f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}"
+                for _, png_bytes in extracted
+            ]
+            self.send_json({
+                "status": "success",
+                "filename": target_p.name,
+                "total_frames": len(extracted),
+                "fps": float(meta.get("Fps", 2.0)),
+                "frames": frames_b64,
+                "metadata": meta,
             })
             return
 

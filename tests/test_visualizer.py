@@ -256,7 +256,7 @@ def test_render_checkpoint_timelapse(tmp_path: Path):
     )
     assert res_delta.exists()
     meta_delta = read_png_metadata(res_delta)
-    assert meta_delta["TotalFrames"] == "3"
+    assert meta_delta["TotalFrames"] == "2"
     assert meta_delta["Domain"] == "till-test"
     assert meta_delta["Mode"] == "delta"
 
@@ -274,6 +274,49 @@ def test_render_checkpoint_timelapse(tmp_path: Path):
     assert res_dash.exists()
     meta_dash = read_png_metadata(res_dash)
     assert meta_dash["Mode"] == "dashboard"
+
+
+def test_extract_apng_frames(tmp_path):
+    from unplow.visualizer import encode_apng_rgb, extract_apng_frames
+
+    w, h = 16, 16
+    f1 = bytes([255, 0, 0] * (w * h))
+    f2 = bytes([0, 255, 0] * (w * h))
+    apng_data = encode_apng_rgb([(w, h, f1), (w, h, f2)], delay_ms=250)
+
+    extracted = extract_apng_frames(apng_data)
+    assert len(extracted) == 2
+    for idx, (meta, png) in enumerate(extracted):
+        assert meta["frame_index"] == idx
+        assert meta["width"] == w
+        assert meta["height"] == h
+        assert meta["delay_ms"] == 250
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
+        assert png.endswith(b"IEND\xaeB`\x82")
+
+
+def test_filter_homogeneous_checkpoints(tmp_path):
+    from unplow.visualizer import filter_homogeneous_checkpoints
+
+    # Create 3 normal-sized checkpoints (e.g. 1000 bytes) and 1 mock checkpoint (100 bytes)
+    p1 = tmp_path / "adapter_model_rev001.pt"
+    p2 = tmp_path / "adapter_model_rev002.pt"
+    p3 = tmp_path / "adapter_model_rev003.pt"
+    p_mock = tmp_path / "adapter_model_rev004.pt"
+
+    p1.write_bytes(b"A" * 1000)
+    p2.write_bytes(b"B" * 1000)
+    p3.write_bytes(b"C" * 1000)
+    p_mock.write_bytes(b"M" * 50)
+
+    filtered = filter_homogeneous_checkpoints([p1, p2, p3, p_mock])
+    assert len(filtered) == 3
+    expected = [
+        "adapter_model_rev001.pt",
+        "adapter_model_rev002.pt",
+        "adapter_model_rev003.pt",
+    ]
+    assert [p.name for p in filtered] == expected
 
 
 # end of file: unplow/tests/test_visualizer.py

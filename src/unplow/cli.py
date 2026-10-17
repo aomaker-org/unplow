@@ -557,6 +557,11 @@ def main() -> None:
         action="store_true",
         help="Omit visual comparison header banner on generated frames",
     )
+    p_vid.add_argument(
+        "--no-smooth",
+        action="store_true",
+        help="Disable global dynamic range scaling across frames",
+    )
 
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
@@ -1337,6 +1342,7 @@ def main() -> None:
             out_path = Path(args.output or out_dir / f"timelapse_{domain}_{mode}.png")
 
             print(f"[*] Compiling {len(checkpoints)} checkpoints for till-{domain} [{mode} mode] -> {out_path}...")
+            smooth = not getattr(args, "no_smooth", False)
             res = render_checkpoint_timelapse(
                 checkpoint_paths=checkpoints,
                 output_path=out_path,
@@ -1346,6 +1352,7 @@ def main() -> None:
                 fps=fps,
                 target_size=size,
                 include_banner=include_banner,
+                smooth_scale=smooth,
             )
             print(f"[+] Timelapse video rendered successfully: {res} ({res.stat().st_size} bytes)")
 

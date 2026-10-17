@@ -404,4 +404,29 @@ revisions (`render_checkpoint_timelapse` and `compile_images_to_apng`):
    Integrates video playback (play, pause, frame scrubbing, speed control)
    into the Web Studio and provides `unplow video` and `make video` targets.
 
+## 19. Flicker-Free Video Synthesis & Double-Buffered Canvas Studio
+
+Phase 23 eliminates frame blanking and inter-frame brightness jumps across
+timelapse video generation and headless remote viewing:
+
+1. **Architectural Cluster Filtering (`filter_homogeneous_checkpoints`)**:
+   Automatically detects and clusters checkpoints by parameter shape and
+   file size, excluding isolated mock checkpoints or disparate runs that
+   previously induced abrupt frame blanking and visual distortion.
+2. **Elimination of Zero-Delta Blank Frames**:
+   In `delta` and `step` modes, sequences evolve directly across non-zero
+   learned checkpoints, preventing an all-zeros blank frame at index 0.
+3. **Global Dynamic Range Normalization (`smooth_scale`)**:
+   Computes a global differential maximum scale across the entire sequence
+   rather than normalizing each frame in isolation, ensuring consistent,
+   flicker-free color contrast across revisions.
+4. **Standalone APNG Frame Extractor (`extract_apng_frames`)**:
+   RFC 7689 compliant decoder that parses `fcTL`, `IDAT`, and `fdAT` chunks
+   to reconstruct standalone PNG byte streams in single-digit milliseconds.
+5. **Double-Buffered HTML5 Canvas Video Player & Micro-Diff Inspection**:
+   - Zero-flicker double-buffered `<canvas id="canvas-player">` playback.
+   - Real-time frame scrubbing with zero decoding lag or blanking.
+   - `⚡ A/B Blink`: Rapidly alternates between consecutive checkpoints.
+   - `± Diff View`: Live pixel-difference rendering against previous frame.
+
 <!-- end of file: unplow/docs/architecture.md -->

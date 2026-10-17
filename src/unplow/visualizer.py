@@ -7,6 +7,7 @@ Supports embedded standard PNG tEXt metadata chunks and pure-Python bitmap
 font visual banners for air-gapped comparison traceability.
 """
 
+from collections import Counter
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -735,6 +736,83 @@ def decode_png_rgb(png_bytes: bytes) -> Tuple[int, int, bytes]:
     return width, height, bytes(rgb)
 
 
+def extract_apng_frames(apng_bytes: bytes) -> List[Tuple[Dict[str, Any], bytes]]:
+    """Extracts standalone PNG byte streams and metadata for each frame in an APNG."""
+    if not apng_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("Invalid PNG header.")
+
+    offset = 8
+    ihdr_data: Optional[bytes] = None
+    fctls: List[bytes] = []
+    idat_chunks: List[bytes] = []
+    fdat_chunks: List[bytes] = []
+
+    while offset + 8 <= len(apng_bytes):
+        length = struct.unpack(">I", apng_bytes[offset : offset + 4])[0]
+        tag = apng_bytes[offset + 4 : offset + 8]
+        chunk_data = apng_bytes[offset + 8 : offset + 8 + length]
+        if tag == b"IHDR":
+            ihdr_data = chunk_data
+        elif tag == b"fcTL":
+            fctls.append(chunk_data)
+        elif tag == b"IDAT":
+            idat_chunks.append(chunk_data)
+        elif tag == b"fdAT":
+            fdat_chunks.append(chunk_data[4:])  # strip 4-byte sequence number
+        elif tag == b"IEND":
+            break
+        offset += 12 + length
+
+    if not ihdr_data:
+        raise ValueError("Missing IHDR in APNG data.")
+
+    header = b"\x89PNG\r\n\x1a\n"
+    frames: List[Tuple[Dict[str, Any], bytes]] = []
+
+    # If not an animated PNG, return single static frame
+    if not fctls:
+        f0 = header + make_png_chunk(b"IHDR", ihdr_data) + b"".join(
+            make_png_chunk(b"IDAT", c) for c in idat_chunks
+        ) + make_png_chunk(b"IEND", b"")
+        return [({"frame_index": 0, "delay_ms": 500, "sequence_number": 0}, f0)]
+
+    for idx, fctl_bytes in enumerate(fctls):
+        seq, w, h, x_off, y_off, delay_num, delay_den, disp, blend = struct.unpack(
+            ">IIIIIHHBB", fctl_bytes
+        )
+        den = delay_den if delay_den != 0 else 100
+        delay_ms = int(delay_num * 1000.0 / den)
+
+        w_curr, h_curr, b_depth, c_type, comp, filt, inter = struct.unpack(
+            ">IIBBBBB", ihdr_data
+        )
+        if (w, h) != (w_curr, h_curr):
+            frame_ihdr = struct.pack(">IIBBBBB", w, h, b_depth, c_type, comp, filt, inter)
+        else:
+            frame_ihdr = ihdr_data
+
+        if idx == 0:
+            frame_body = b"".join(make_png_chunk(b"IDAT", c) for c in idat_chunks)
+        else:
+            frame_body = make_png_chunk(b"IDAT", fdat_chunks[idx - 1])
+
+        standalone_png = header + make_png_chunk(b"IHDR", frame_ihdr) + frame_body + make_png_chunk(b"IEND", b"")
+        frames.append((
+            {
+                "frame_index": idx,
+                "sequence_number": seq,
+                "width": w,
+                "height": h,
+                "delay_ms": delay_ms,
+                "dispose_op": disp,
+                "blend_op": blend,
+            },
+            standalone_png,
+        ))
+
+    return frames
+
+
 def compile_images_to_apng(
     image_paths: List[Union[str, Path]],
     output_path: Union[str, Path],
@@ -827,6 +905,36 @@ def pool_tensor_2d(tensor: torch.Tensor, target_size: Tuple[int, int]) -> torch.
     return pool(t.unsqueeze(0).unsqueeze(0)).squeeze(0).squeeze(0)
 
 
+def filter_homogeneous_checkpoints(
+    checkpoint_paths: List[Union[str, Path]],
+) -> List[Path]:
+    """Filters a set of checkpoint files to the dominant architectural size cluster.
+
+    Excludes isolated mock checkpoints or disparate architectures that would otherwise
+    cause violent frame blanking and distortion in timelapse video playback.
+    """
+    if not checkpoint_paths:
+        return []
+
+    paths = [Path(p) for p in checkpoint_paths if Path(p).exists()]
+    if len(paths) <= 2:
+        return paths
+
+    def _extract_rev(p: Path) -> int:
+        m = re.search(r"rev(\d+)", p.name)
+        return int(m.group(1)) if m else 0
+
+    sizes = [p.stat().st_size for p in paths]
+    size_counts = Counter(sizes)
+    dominant_size, _ = size_counts.most_common(1)[0]
+
+    valid = [
+        p for p in paths
+        if 0.5 * dominant_size <= p.stat().st_size <= 2.0 * dominant_size
+    ]
+    return sorted(valid, key=_extract_rev)
+
+
 def render_checkpoint_timelapse(
     checkpoint_paths: List[Union[str, Path]],
     output_path: Union[str, Path],
@@ -836,8 +944,9 @@ def render_checkpoint_timelapse(
     fps: float = 2.0,
     target_size: Tuple[int, int] = (512, 512),
     include_banner: bool = True,
+    smooth_scale: bool = True,
 ) -> Path:
-    """Compiles a chronological sequence of model checkpoints into an APNG video.
+    """Compiles a chronological sequence of model checkpoints into a flicker-free APNG video.
 
     Modes:
       - 'delta'     : Differential update relative to initial checkpoint (rev001).
@@ -852,48 +961,104 @@ def render_checkpoint_timelapse(
         m = re.search(r"rev(\d+)", Path(p).name)
         return int(m.group(1)) if m else 0
 
-    sorted_paths = sorted([Path(p) for p in checkpoint_paths], key=_extract_rev)
-    total_frames = len(sorted_paths)
+    sorted_paths = filter_homogeneous_checkpoints(checkpoint_paths)
+    if not sorted_paths:
+        sorted_paths = sorted([Path(p) for p in checkpoint_paths], key=_extract_rev)
 
-    w_base = torch.load(sorted_paths[0], map_location="cpu", weights_only=False)
-    resolved_key, _ = select_model_tensor(w_base, tensor_name)
+    total_ckpts = len(sorted_paths)
+    if total_ckpts == 0:
+        raise ValueError("No valid checkpoints found to render.")
 
-    w_prev = w_base
-    frames: List[Tuple[int, int, bytes]] = []
+    # In delta and step mode with multiple checkpoints, start evolution from first learned
+    # revision against base, preventing an all-zeros blank frame at the beginning.
+    if mode in ("delta", "step") and total_ckpts > 1:
+        base_path = sorted_paths[0]
+        eval_paths = sorted_paths[1:]
+    else:
+        base_path = sorted_paths[0]
+        eval_paths = sorted_paths
+
+    total_frames = len(eval_paths)
+    w_base = torch.load(base_path, map_location="cpu", weights_only=False)
+    resolved_key, t_base_ref = select_model_tensor(w_base, tensor_name)
 
     banner_h = 38 if include_banner else 0
     w_dim, h_dim = target_size
     total_h = h_dim + banner_h
 
-    for idx, p in enumerate(sorted_paths):
-        curr_name = p.name
-        rev_num = _extract_rev(p)
-        w_curr = torch.load(p, map_location="cpu", weights_only=False)
+    # Pre-computation pass: determine global normalization scales across all frames
+    p_base_ref = pool_tensor_2d(t_base_ref, target_size)
+    max_delta_global = 1e-6
+    max_step_global = 1e-6
+    max_raw_global = 1e-6
+    min_raw_global = 1e6
+    dash_max_q = 1e-6
+    dash_max_k = 1e-6
+    dash_max_o = 1e-6
 
+    prev_p = p_base_ref
+    loaded_data = []
+
+    for idx, p in enumerate(eval_paths):
+        w_curr = torch.load(p, map_location="cpu", weights_only=False)
+        curr_key, t_curr = select_model_tensor(w_curr, tensor_name)
+        p_curr = pool_tensor_2d(t_curr, target_size)
+
+        diff_delta = p_curr - p_base_ref
+        diff_step = p_curr - prev_p
+
+        max_delta_global = max(max_delta_global, float(diff_delta.abs().max().item()))
+        max_step_global = max(max_step_global, float(diff_step.abs().max().item()))
+        max_raw_global = max(max_raw_global, float(p_curr.max().item()))
+        min_raw_global = min(min_raw_global, float(p_curr.min().item()))
+
+        if mode == "dashboard":
+            panel_size = (w_dim // 2, h_dim // 2)
+            _, t_q_b = select_model_tensor(w_base, "q_proj")
+            _, t_q_c = select_model_tensor(w_curr, "q_proj")
+            _, t_k_b = select_model_tensor(w_base, "k_proj")
+            _, t_k_c = select_model_tensor(w_curr, "k_proj")
+            _, t_o_b = select_model_tensor(w_base, "o_proj")
+            _, t_o_c = select_model_tensor(w_curr, "o_proj")
+
+            dq = pool_tensor_2d(t_q_c, panel_size) - pool_tensor_2d(t_q_b, panel_size)
+            dk = pool_tensor_2d(t_k_c, panel_size) - pool_tensor_2d(t_k_b, panel_size)
+            do = pool_tensor_2d(t_o_c, panel_size) - pool_tensor_2d(t_o_b, panel_size)
+
+            dash_max_q = max(dash_max_q, float(dq.abs().max().item()))
+            dash_max_k = max(dash_max_k, float(dk.abs().max().item()))
+            dash_max_o = max(dash_max_o, float(do.abs().max().item()))
+
+            loaded_data.append((p, curr_key, p_curr, diff_delta, diff_step, (dq, dk, do)))
+        else:
+            loaded_data.append((p, curr_key, p_curr, diff_delta, diff_step, None))
+
+        prev_p = p_curr
+
+    frames: List[Tuple[int, int, bytes]] = []
+
+    for idx, (p, curr_key, p_curr, diff_delta, diff_step, dash_diffs) in enumerate(loaded_data):
+        rev_num = _extract_rev(p)
+        base_rev = _extract_rev(base_path)
         pixels = bytearray(total_h * w_dim * 3)
 
         if mode == "dashboard":
             panel_size = (w_dim // 2, h_dim // 2)
-            _, t_q_base = select_model_tensor(w_base, "q_proj")
-            _, t_q_curr = select_model_tensor(w_curr, "q_proj")
-            _, t_k_base = select_model_tensor(w_base, "k_proj")
-            _, t_k_curr = select_model_tensor(w_curr, "k_proj")
-            _, t_o_base = select_model_tensor(w_base, "o_proj")
-            _, t_o_curr = select_model_tensor(w_curr, "o_proj")
-
-            p1 = pool_tensor_2d(t_q_curr, panel_size).numpy()
+            half_w, half_h = panel_size
+            w_curr = torch.load(p, map_location="cpu", weights_only=False)
+            _, t_q_c = select_model_tensor(w_curr, "q_proj")
+            p1 = pool_tensor_2d(t_q_c, panel_size).numpy()
             p1_norm = (p1 - p1.min()) / max(p1.max() - p1.min(), 1e-8)
 
-            diff_q = (pool_tensor_2d(t_q_curr, panel_size) - pool_tensor_2d(t_q_base, panel_size)).numpy()
-            p2_norm = diff_q / max(abs(float(diff_q.min())), abs(float(diff_q.max())), 1e-8)
+            dq, dk, do = dash_diffs
+            scale_q = dash_max_q if smooth_scale else max(float(dq.abs().max().item()), 1e-8)
+            scale_k = dash_max_k if smooth_scale else max(float(dk.abs().max().item()), 1e-8)
+            scale_o = dash_max_o if smooth_scale else max(float(do.abs().max().item()), 1e-8)
 
-            diff_k = (pool_tensor_2d(t_k_curr, panel_size) - pool_tensor_2d(t_k_base, panel_size)).numpy()
-            p3_norm = diff_k / max(abs(float(diff_k.min())), abs(float(diff_k.max())), 1e-8)
+            p2_norm = dq.numpy() / scale_q
+            p3_norm = dk.numpy() / scale_k
+            p4_norm = do.numpy() / scale_o
 
-            diff_o = (pool_tensor_2d(t_o_curr, panel_size) - pool_tensor_2d(t_o_base, panel_size)).numpy()
-            p4_norm = diff_o / max(abs(float(diff_o.min())), abs(float(diff_o.max())), 1e-8)
-
-            half_w, half_h = panel_size
             for y in range(h_dim):
                 py = y + banner_h
                 for x in range(w_dim):
@@ -913,22 +1078,16 @@ def render_checkpoint_timelapse(
                     pixels[p_idx + 1] = rgb[1]
                     pixels[p_idx + 2] = rgb[2]
 
-            diff_metrics = compute_tensor_metrics(
-                pool_tensor_2d(t_q_curr, panel_size) - pool_tensor_2d(t_q_base, panel_size)
-            )
+            diff_metrics = compute_tensor_metrics(dq)
+            resolved_key = curr_key
 
         elif mode in ("delta", "step"):
-            ref_dict = w_base if mode == "delta" else w_prev
-            _, t_ref = select_model_tensor(ref_dict, tensor_name)
-            curr_tensor_key, t_curr = select_model_tensor(w_curr, tensor_name)
-
-            p_ref = pool_tensor_2d(t_ref, target_size)
-            p_curr = pool_tensor_2d(t_curr, target_size)
-            diff = p_curr - p_ref
-
-            downsampled = diff.numpy()
-            max_abs = max(abs(float(downsampled.min())), abs(float(downsampled.max())), 1e-8)
-            norm = downsampled / max_abs
+            target_diff = diff_delta if mode == "delta" else diff_step
+            scale = (max_delta_global if mode == "delta" else max_step_global) if smooth_scale else max(
+                float(target_diff.abs().max().item()), 1e-8
+            )
+            downsampled = target_diff.numpy()
+            norm = downsampled / scale
 
             for y in range(h_dim):
                 py = y + banner_h
@@ -939,14 +1098,13 @@ def render_checkpoint_timelapse(
                     pixels[p_idx + 1] = rgb[1]
                     pixels[p_idx + 2] = rgb[2]
 
-            diff_metrics = compute_tensor_metrics(diff)
-            resolved_key = curr_tensor_key
+            diff_metrics = compute_tensor_metrics(target_diff)
+            resolved_key = curr_key
 
         else:  # raw mode
-            curr_tensor_key, t_curr = select_model_tensor(w_curr, tensor_name)
-            p_curr = pool_tensor_2d(t_curr, target_size)
             downsampled = p_curr.numpy()
-            min_v, max_v = float(downsampled.min()), float(downsampled.max())
+            min_v = min_raw_global if smooth_scale else float(downsampled.min())
+            max_v = max_raw_global if smooth_scale else float(downsampled.max())
             span = max(max_v - min_v, 1e-8)
             norm = (downsampled - min_v) / span
 
@@ -960,7 +1118,7 @@ def render_checkpoint_timelapse(
                     pixels[p_idx + 2] = rgb[2]
 
             diff_metrics = compute_tensor_metrics(p_curr)
-            resolved_key = curr_tensor_key
+            resolved_key = curr_key
 
         # Header banner
         if include_banner:
@@ -969,9 +1127,15 @@ def render_checkpoint_timelapse(
             line1 = f"TIMELAPSE: till-{domain} | FRAME {idx + 1}/{total_frames} (rev{rev_num:03d})"
             short_k = resolved_key.split(".")[-2] if "." in resolved_key else resolved_key
             if mode == "dashboard":
-                line2 = f"MOSAIC: W_Q | dW_Q | dW_K | dW_O vs rev001 | MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
+                line2 = (
+                    f"MOSAIC: W_Q | dW_Q | dW_K | dW_O vs rev{base_rev:03d} | "
+                    f"MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
+                )
             elif mode == "delta":
-                line2 = f"DELTA vs rev001 | TENSOR: {short_k} | MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
+                line2 = (
+                    f"DELTA vs rev{base_rev:03d} | TENSOR: {short_k} | "
+                    f"MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
+                )
             elif mode == "step":
                 line2 = f"STEP DELTA | TENSOR: {short_k} | MEAN |dW|: {diff_metrics['mean_abs']:.2e}"
             else:
@@ -981,7 +1145,6 @@ def render_checkpoint_timelapse(
             draw_text_rgb(pixels, w_dim, total_h, line2, 8, 20, (210, 220, 240))
 
         frames.append((w_dim, total_h, bytes(pixels)))
-        w_prev = w_curr
 
     delay_ms = max(50, int(1000.0 / max(0.1, fps)))
     meta = {
@@ -991,8 +1154,9 @@ def render_checkpoint_timelapse(
         "TensorName": resolved_key,
         "TotalFrames": str(total_frames),
         "Fps": f"{fps:.1f}",
-        "InitialCheckpoint": sorted_paths[0].name,
-        "FinalCheckpoint": sorted_paths[-1].name,
+        "InitialCheckpoint": eval_paths[0].name,
+        "FinalCheckpoint": eval_paths[-1].name,
+        "BaselineCheckpoint": base_path.name,
         "CreatedAt": datetime.now(timezone.utc).isoformat(),
         "Software": "unplow v0.17.0",
     }

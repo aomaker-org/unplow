@@ -460,6 +460,7 @@ def test_cli_video_help():
     assert "--mode" in result.stdout
     assert "--fps" in result.stdout
     assert "--input-dir" in result.stdout
+    assert "--no-smooth" in result.stdout
 
 
 def test_cli_video_execution(tmp_path):
