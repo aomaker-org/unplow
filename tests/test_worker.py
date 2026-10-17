@@ -225,4 +225,20 @@ def test_worker_task_vector_task(mock_worker, tmp_path):
     out_file = mock_worker.work_products_dir / f"{task.task_id}_task_vector.json"
     assert out_file.exists()
 
+
+def test_worker_audit_task(mock_worker):
+    task = mock_worker.queue.enqueue(
+        action="audit",
+        payload="def fibonacci(n):",
+        extra={"top_k": 3},
+    )
+    claimed = mock_worker.queue.claim_next_task()
+    assert claimed is not None
+    t, p = claimed
+    mock_worker.process_task(t, p)
+
+    audit_file = mock_worker.work_products_dir / f"{task.task_id}_audit.json"
+    assert audit_file.exists()
+
+
 # end of file: unplow/tests/test_worker.py

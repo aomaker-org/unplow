@@ -102,6 +102,11 @@ payload, this problem splits into two distinct mathematical paradigms:
     Vovk, 1990; Veness et al., 2012).
   - Assigned to container header Bit 3 (`FLAG_BAYES_MIXER = 0x08`), completing
     every bit in the 8-bit `.unp` header flag register with zero side bits.
+- **Layer-Wise Internal Information Auditor (Phase 7)**:
+  - Profiles intermediate Logit Lens projections, top token predictions, and
+    entropy collapse across every Transformer layer.
+  - Monitors residual stream $L_2$ vector norm dilation and FFN down-projection
+    weight scaling across depth.
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -231,6 +236,12 @@ uv run unplow archive \
   --file pyproject.toml --bayes-mix -o pyproject.unp
 ```
 
+### 19. Layer-Wise Internal Information & Surprisal Audit (Phase 7)
+
+```bash
+uv run unplow audit "def fibonacci(n):"
+```
+
 ---
 
 ## Testing
@@ -255,6 +266,7 @@ make test
 unplow/
 ├── src/
 │   └── unplow/              # Core LLM decompression package
+│       ├── auditor.py       # Layer-wise internal info & logit lens audit
 │       ├── cache_coder.py   # Online prefix-cache mixture & surprisal
 │       ├── circuits.py      # Coupled SwiGLU circuits & logit lens
 │       ├── cli.py           # Command-line interface

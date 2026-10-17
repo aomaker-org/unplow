@@ -313,6 +313,18 @@ def main() -> None:
     p_tv.add_argument("--top-neurons", type=int, default=6, help="Top divergent neurons to analyze (default: 6)")
     p_tv.add_argument("-o", "--output", help="Output JSON path for report or steered record")
 
+    # Command: audit (Phase 7 Layer-Wise Information & Surprisal Audit)
+    p_audit = subparsers.add_parser(
+        "audit",
+        aliases=["layer-audit", "inspect-layers"],
+        help="Layer-wise internal information & Logit Lens audit across Transformer depth",
+    )
+    p_audit.add_argument("prompt", help="Input prompt / sequence to audit across layers")
+    p_audit.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_audit.add_argument("--top-k", type=int, default=5, help="Number of top token candidates per layer (default: 5)")
+    p_audit.add_argument("-o", "--output", help="Output JSON path for layer audit report")
+    p_audit.add_argument("--json", action="store_true", help="Print output in JSON format instead of table")
+
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
     p_unarch.add_argument("archive_file", help="Path to .unp archive file")
@@ -345,7 +357,7 @@ def main() -> None:
         "action",
         choices=[
             "probe", "compress", "decompress", "manifold", "archive", "unarchive",
-            "circuits", "steer", "profile", "surprisal",
+            "circuits", "steer", "profile", "surprisal", "audit", "layer-audit",
         ],
         help="Task action",
     )
@@ -715,6 +727,42 @@ def main() -> None:
             with open(out_p, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             print(f"\n[+] Exported task vector results to {out_p}")
+
+    elif args.command in ("audit", "layer-audit", "inspect-layers"):
+        from .auditor import ModelInternalAuditor
+        from .models import load_causal_lm
+
+        is_json = getattr(args, "json", False)
+        if not is_json:
+            print(f"[*] Loading model for Layer-Wise Internal Information Audit: {args.model}...")
+        tokenizer, model, _ = load_causal_lm(model_identifier=args.model)
+        auditor = ModelInternalAuditor(model, tokenizer)
+
+        if not is_json:
+            print(f"[*] Auditing internal representations for prompt: {repr(args.prompt)}...")
+        reports = auditor.audit_sequence(args.prompt, top_k=args.top_k)
+
+        if getattr(args, "json", False):
+            payload = {
+                "prompt": args.prompt,
+                "layer_count": len(reports),
+                "layers": [r.to_dict() for r in reports],
+            }
+            print(json.dumps(payload, indent=2))
+        else:
+            print("\n" + auditor.format_audit_table(reports, prompt=args.prompt))
+
+        if args.output:
+            out_p = Path(args.output)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "prompt": args.prompt,
+                "layer_count": len(reports),
+                "layers": [r.to_dict() for r in reports],
+            }
+            with open(out_p, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            print(f"\n[+] Exported layer audit report to {out_p}")
 
     elif args.command in ("archive", "pack"):
         text = args.text

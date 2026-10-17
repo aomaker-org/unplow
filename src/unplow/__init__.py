@@ -12,6 +12,10 @@ Treats large language models as compressed data archives, providing:
 6. Atomic file-backed queue scheduling and tamper-evident forensic ledgers.
 """
 
+from .auditor import (
+    LayerAuditReport,
+    ModelInternalAuditor,
+)
 from .cache_coder import (
     FLAG_CACHE_MIXTURE,
     OnlinePrefixCacheCDF,
@@ -81,6 +85,7 @@ from .models import (
     MockCausalLM,
     audit_system_models,
     load_causal_lm,
+    load_local_model,
     resolve_model_path,
 )
 from .paradigm1 import (
@@ -130,7 +135,7 @@ from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -168,11 +173,13 @@ __all__ = [
     "GitDestructiveOperationError",
     "GitSafetyGuard",
     "LLMArithmeticCodec",
+    "LayerAuditReport",
     "MAX_VAL",
     "MechanisticSteeringEngine",
     "MechanisticWeightInspector",
     "MockByteTokenizer",
     "MockCausalLM",
+    "ModelInternalAuditor",
     "NeuronMemoryTrace",
     "OnlinePrefixCacheCDF",
     "Order1BigramCacheCDF",
@@ -201,6 +208,7 @@ __all__ = [
     "compute_str_sha256",
     "get_telemetry_snapshot",
     "load_causal_lm",
+    "load_local_model",
     "logits_to_integer_cdf_fast",
     "pack_flags_with_domain",
     "pack_unp_container",
