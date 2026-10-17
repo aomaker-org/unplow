@@ -107,6 +107,15 @@ payload, this problem splits into two distinct mathematical paradigms:
     entropy collapse across every Transformer layer.
   - Monitors residual stream $L_2$ vector norm dilation and FFN down-projection
     weight scaling across depth.
+- **Closed-Loop Refactoring, Distillation & Archiving (Phase 8 - `replow`)**:
+  - Mechanistic code harvesting and latent basin extraction via activation and
+    task-vector steering.
+  - AST-driven static sanitization, markdown fence removal, indentation
+    normalization, and fallback function stub wrapping (`__refactored_stub__`).
+  - Structured JSONL dataset staging and lightweight PyTorch next-token
+    distillation fine-tuning gradient steps.
+  - Direct end-to-end compression into `.unp` containers using the 3-expert
+    Bayesian Context-Tree Switching (CTS) mixture arithmetic codec.
 - **Atomic File-Backed Queue & Observability**:
   - POSIX advisory file locking (`fcntl.flock`) over `records/queue/`.
   - Cryptographic audit trail logging SHA-256 hashes, compression stats, and
@@ -242,6 +251,14 @@ uv run unplow archive \
 uv run unplow audit "def fibonacci(n):"
 ```
 
+### 20. Closed-Loop Refactoring & Archiving (Phase 8)
+
+```bash
+uv run unplow replow \
+  --raw "```python\ndef fib(n):\n    return n\n```" \
+  -o workspace/targets/fib.unp
+```
+
 ---
 
 ## Testing
@@ -280,6 +297,7 @@ unplow/
 │       ├── paradigm1.py     # Lossy static weight decompressor
 │       ├── paradigm2.py     # Lossless arithmetic codec & manifold engine
 │       ├── queue.py         # Atomic POSIX file-locked queue
+│       ├── replow.py        # Closed-loop AST refactor, distill & archive
 │       ├── safety.py        # Air-gap enforcer & additive file safety
 │       ├── steering.py      # RMSNorm-folded lens & activation steering
 │       ├── subspace_coder.py# SVD subspace steering & Markov bigram cache

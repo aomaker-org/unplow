@@ -325,6 +325,26 @@ def main() -> None:
     p_audit.add_argument("-o", "--output", help="Output JSON path for layer audit report")
     p_audit.add_argument("--json", action="store_true", help="Print output in JSON format instead of table")
 
+    # Command: replow (Phase 8 Refactoring, Distillation Staging, and Bayesian CTS Archiving)
+    p_replow = subparsers.add_parser(
+        "replow",
+        help="Refactor code basins, stage training datasets, and archive with Bayesian CTS",
+    )
+    p_replow.add_argument("file", nargs="?", default=None, help="Input raw code file or script to process")
+    p_replow.add_argument("--raw", default=None, help="Direct raw code string to process")
+    p_replow.add_argument(
+        "-o", "--output",
+        default="workspace/targets/replow_artifact.unp",
+        help="Output .unp archive path (default: workspace/targets/replow_artifact.unp)",
+    )
+    p_replow.add_argument("-m", "--model", default="auto", help="Model name or local snapshot path")
+    p_replow.add_argument("--domain", type=int, default=2, help="Domain prior ID (default: 2 for python_code)")
+    p_replow.add_argument(
+        "--train-steps", type=int, default=0, help="Optional distillation update steps (default: 0)"
+    )
+    p_replow.add_argument("--stage-dataset", default=None, help="Optional JSONL path to stage training dataset")
+    p_replow.add_argument("--json", action="store_true", help="Output artifact details as JSON")
+
     # Command: unarchive (Paradigm 2 .unp Container)
     p_unarch = subparsers.add_parser("unarchive", aliases=["unpack"], help="Unpack and verify .unp container")
     p_unarch.add_argument("archive_file", help="Path to .unp archive file")
@@ -358,6 +378,7 @@ def main() -> None:
         choices=[
             "probe", "compress", "decompress", "manifold", "archive", "unarchive",
             "circuits", "steer", "profile", "surprisal", "audit", "layer-audit",
+            "replow", "replow_pipeline",
         ],
         help="Task action",
     )
@@ -763,6 +784,61 @@ def main() -> None:
             with open(out_p, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
             print(f"\n[+] Exported layer audit report to {out_p}")
+
+    elif args.command == "replow":
+        from .models import load_causal_lm
+        from .replow import ReplowEngine
+
+        raw_code = args.raw
+        if args.file:
+            fp = Path(args.file)
+            if not fp.exists():
+                print(f"[-] Error: File '{args.file}' not found.", file=sys.stderr)
+                sys.exit(1)
+            raw_code = fp.read_text(encoding="utf-8")
+        elif not raw_code and not sys.stdin.isatty():
+            raw_code = sys.stdin.read()
+
+        if not raw_code:
+            print("[-] Error: No raw code provided to replow (use --raw, file path, or stdin).", file=sys.stderr)
+            sys.exit(1)
+
+        is_json = getattr(args, "json", False)
+        if not is_json:
+            print(f"[*] Initializing ReplowEngine with model: {args.model}...")
+
+        tokenizer, model, _ = load_causal_lm(model_identifier=args.model)
+        engine = ReplowEngine(model, tokenizer)
+
+        if args.stage_dataset:
+            ds_p = engine.stage_training_dataset([raw_code], args.stage_dataset)
+            if not is_json:
+                print(f"[+] Staged training dataset at: {ds_p}")
+
+        if not is_json:
+            print(f"[*] Processing AST refactoring and Bayesian CTS archiving -> {args.output}...")
+
+        artifact, loss = engine.run_pipeline(
+            raw_code=raw_code,
+            output_unp_path=args.output,
+            train_steps=args.train_steps,
+            domain_id=args.domain,
+        )
+
+        if is_json:
+            data = artifact.to_dict()
+            if loss is not None:
+                data["distillation_loss"] = loss
+            print(json.dumps(data, indent=2))
+        else:
+            print("\n=== Replow Pipeline Artifact Summary ===")
+            print(f"Syntax Valid      : {artifact.syntax_valid}")
+            print(f"Container Archive : {artifact.container_path} ({artifact.compressed_bytes_len} bytes)")
+            print(f"Bits per Byte     : {artifact.bits_per_byte:.3f} bpb")
+            if loss is not None:
+                print(f"Distillation Loss : {loss:.4f}")
+            print("\n--- Refactored Code ---")
+            print(artifact.refactored_text)
 
     elif args.command in ("archive", "pack"):
         text = args.text
