@@ -105,4 +105,38 @@ def test_cli_profile_help():
     assert result.returncode == 0
     assert "--cache-weight" in result.stdout
 
+
+def test_cli_gguf_inspect_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "gguf-inspect", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "path" in result.stdout
+    assert "--compare" in result.stdout
+    assert "--tensor" in result.stdout
+
+
+def test_cli_subspace_steer_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "subspace-steer", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--layer" in result.stdout
+    assert "--neurons" in result.stdout
+    assert "--gain" in result.stdout
+
+
+def test_cli_archive_bigram_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "unplow.cli", "archive", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--bigram-mix" in result.stdout
+
 # end of file: unplow/tests/test_cli.py

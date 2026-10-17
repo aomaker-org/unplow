@@ -34,6 +34,8 @@ from .conditioning import (
     unpack_flags_with_domain,
 )
 from .container import (
+    FLAG_BIGRAM_CACHE,
+    FLAG_CACHE_MIXTURE,
     FLAG_LOSSLESS_VERIFIED,
     FLAG_MANIFOLD_SEED,
     UNP_HEADER_FORMAT,
@@ -51,6 +53,17 @@ from .forensics import (
     compute_file_sha256,
     compute_str_sha256,
     get_telemetry_snapshot,
+)
+from .gguf_inspector import (
+    GGML_TYPE_F16,
+    GGML_TYPE_F32,
+    GGML_TYPE_Q4_0,
+    GGML_TYPE_Q8_0,
+    GGUFBinaryInspector,
+    GGUFHeaderSummary,
+    GGUFTensorInfo,
+    SubstrateDeltaReport,
+    build_synthetic_gguf_v3_bytes,
 )
 from .mechanistic import (
     MechanisticWeightInspector,
@@ -98,11 +111,16 @@ from .steering import (
     MechanisticSteeringEngine,
     SteeredBasinRecord,
 )
+from .subspace_coder import (
+    Order1BigramCacheCDF,
+    SVDSubspaceSteeringEngine,
+    SubspaceSteeringRecord,
+)
 from .worker import (
     DecompressionWorker,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "AdditiveFileHandler",
@@ -119,12 +137,20 @@ __all__ = [
     "DeterministicMockCausalLM",
     "DeterministicMockTokenizer",
     "ExtractedRecord",
+    "FLAG_BIGRAM_CACHE",
     "FLAG_CACHE_MIXTURE",
     "FLAG_LOSSLESS_VERIFIED",
     "FLAG_MANIFOLD_SEED",
     "FileTaskQueue",
     "FoldedCircuitTrace",
     "ForensicAuditLogger",
+    "GGML_TYPE_F16",
+    "GGML_TYPE_F32",
+    "GGML_TYPE_Q4_0",
+    "GGML_TYPE_Q8_0",
+    "GGUFBinaryInspector",
+    "GGUFHeaderSummary",
+    "GGUFTensorInfo",
     "GitDestructiveOperationError",
     "GitSafetyGuard",
     "LLMArithmeticCodec",
@@ -135,8 +161,12 @@ __all__ = [
     "MockCausalLM",
     "NeuronMemoryTrace",
     "OnlinePrefixCacheCDF",
+    "Order1BigramCacheCDF",
     "PRECISION_BITS",
+    "SVDSubspaceSteeringEngine",
     "SteeredBasinRecord",
+    "SubspaceSteeringRecord",
+    "SubstrateDeltaReport",
     "SurprisalProfileReport",
     "SwiGLUCircuitDecompressor",
     "TOTAL_FREQ",
@@ -150,6 +180,7 @@ __all__ = [
     "UnpArchiveMetadata",
     "WeightDecompressor",
     "audit_system_models",
+    "build_synthetic_gguf_v3_bytes",
     "compute_file_sha256",
     "compute_str_sha256",
     "get_telemetry_snapshot",

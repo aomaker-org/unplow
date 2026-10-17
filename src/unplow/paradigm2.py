@@ -21,6 +21,7 @@ import numpy as np
 import torch
 
 from .cache_coder import OnlinePrefixCacheCDF
+from .subspace_coder import Order1BigramCacheCDF
 from .conditioning import (
     logits_to_integer_cdf_fast,
     prewarm_kv_cache_for_domain,
@@ -153,6 +154,11 @@ class LLMArithmeticCodec:
         enable_cache_mixture: bool = False,
         cache_weight: float = 0.08,
         use_cache_mixture: Optional[bool] = None,
+        enable_bigram_cache: bool = False,
+        use_bigram_cache: Optional[bool] = None,
+        bigram_cache: Optional[bool] = None,
+        unigram_weight: float = 0.06,
+        bigram_weight: float = 0.14,
     ) -> Tuple[bytes, int, CompressionStats]:
         """Compress text into an arithmetic bitstream using the LLM distribution.
 
@@ -160,6 +166,10 @@ class LLMArithmeticCodec:
         """
         if use_cache_mixture is not None:
             enable_cache_mixture = use_cache_mixture
+        if use_bigram_cache is not None:
+            enable_bigram_cache = use_bigram_cache
+        if bigram_cache is not None:
+            enable_bigram_cache = bigram_cache
 
         token_ids = self.tokenizer.encode(text, add_special_tokens=False)
         num_tokens = len(token_ids)
@@ -190,10 +200,17 @@ class LLMArithmeticCodec:
             curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
             past_key_values = None
 
-        if enable_cache_mixture:
-            tok_v = getattr(self.tokenizer, "vocab_size", 0) or 0
-            cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
-            v_size = max(tok_v, cfg_v, 256)
+        tok_v = getattr(self.tokenizer, "vocab_size", 0) or 0
+        cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
+        v_size = max(tok_v, cfg_v, 256)
+
+        if enable_bigram_cache:
+            cache = Order1BigramCacheCDF(
+                vocab_size=v_size,
+                unigram_weight=unigram_weight,
+                bigram_weight=bigram_weight,
+            )
+        elif enable_cache_mixture:
             cache = OnlinePrefixCacheCDF(vocab_size=v_size, cache_weight=cache_weight)
         else:
             cache = None
@@ -208,7 +225,9 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            if cache is not None:
+            if isinstance(cache, Order1BigramCacheCDF):
+                cdf = cache.logits_to_bigram_mixed_cdf(outputs.logits[0, -1, :])
+            elif cache is not None:
                 cdf = cache.logits_to_mixed_integer_cdf(outputs.logits[0, -1, :])
             else:
                 cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
@@ -281,6 +300,11 @@ class LLMArithmeticCodec:
         enable_cache_mixture: bool = False,
         cache_weight: float = 0.08,
         use_cache_mixture: Optional[bool] = None,
+        enable_bigram_cache: bool = False,
+        use_bigram_cache: Optional[bool] = None,
+        bigram_cache: Optional[bool] = None,
+        unigram_weight: float = 0.06,
+        bigram_weight: float = 0.14,
     ) -> str:
         """Decompress an arithmetic bitstream back to exact original text.
 
@@ -289,6 +313,10 @@ class LLMArithmeticCodec:
         """
         if use_cache_mixture is not None:
             enable_cache_mixture = use_cache_mixture
+        if use_bigram_cache is not None:
+            enable_bigram_cache = use_bigram_cache
+        if bigram_cache is not None:
+            enable_bigram_cache = bigram_cache
 
         bits: List[int] = []
         for byte_val in compressed_bytes:
@@ -324,10 +352,17 @@ class LLMArithmeticCodec:
             curr_input = torch.tensor([[self.bos_token_id]], device=self.device)
             past_key_values = None
 
-        if enable_cache_mixture:
-            tok_v = getattr(self.tokenizer, "vocab_size", 0) or 0
-            cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
-            v_size = max(tok_v, cfg_v, 256)
+        tok_v = getattr(self.tokenizer, "vocab_size", 0) or 0
+        cfg_v = getattr(getattr(self.model, "config", None), "vocab_size", 0) or 0
+        v_size = max(tok_v, cfg_v, 256)
+
+        if enable_bigram_cache:
+            cache = Order1BigramCacheCDF(
+                vocab_size=v_size,
+                unigram_weight=unigram_weight,
+                bigram_weight=bigram_weight,
+            )
+        elif enable_cache_mixture:
             cache = OnlinePrefixCacheCDF(vocab_size=v_size, cache_weight=cache_weight)
         else:
             cache = None
@@ -342,7 +377,9 @@ class LLMArithmeticCodec:
                 use_cache=True,
             )
             past_key_values = outputs.past_key_values
-            if cache is not None:
+            if isinstance(cache, Order1BigramCacheCDF):
+                cdf = cache.logits_to_bigram_mixed_cdf(outputs.logits[0, -1, :])
+            elif cache is not None:
                 cdf = cache.logits_to_mixed_integer_cdf(outputs.logits[0, -1, :])
             else:
                 cdf = logits_to_integer_cdf_fast(outputs.logits[0, -1, :])
@@ -390,11 +427,20 @@ class LLMArithmeticCodec:
         enable_cache_mixture: bool = False,
         cache_weight: float = 0.08,
         use_cache_mixture: Optional[bool] = None,
+        enable_bigram_cache: bool = False,
+        use_bigram_cache: Optional[bool] = None,
+        bigram_cache: Optional[bool] = None,
+        unigram_weight: float = 0.06,
+        bigram_weight: float = 0.14,
         auto_domain: bool = False,
     ) -> ContainerResult:
         """Compress text directly into a self-verifying .unp binary archive."""
         if use_cache_mixture is not None:
             enable_cache_mixture = use_cache_mixture
+        if use_bigram_cache is not None:
+            enable_bigram_cache = use_bigram_cache
+        if bigram_cache is not None:
+            enable_bigram_cache = bigram_cache
 
         if auto_domain or domain_id == "auto":
             best_id, _, _ = select_optimal_domain_mdl(
@@ -414,6 +460,9 @@ class LLMArithmeticCodec:
             domain_id=dom_int,
             enable_cache_mixture=enable_cache_mixture,
             cache_weight=cache_weight,
+            enable_bigram_cache=enable_bigram_cache,
+            unigram_weight=unigram_weight,
+            bigram_weight=bigram_weight,
         )
         container_bytes = pack_unp_container(
             bitstream=payload,
@@ -423,6 +472,7 @@ class LLMArithmeticCodec:
             verify_hash=verify_hash,
             domain_id=dom_int,
             enable_cache_mixture=enable_cache_mixture,
+            enable_bigram_cache=enable_bigram_cache,
         )
         meta, _ = unpack_unp_container(container_bytes)
         return ContainerResult(container_bytes, meta, stats)
@@ -431,6 +481,7 @@ class LLMArithmeticCodec:
         self,
         container_bytes: Union[bytes, Tuple[Any, ...]],
         use_cache_mixture: Optional[bool] = None,
+        use_bigram_cache: Optional[bool] = None,
     ) -> DecompressResult:
         """Decompress a .unp binary archive and verify cryptographic integrity."""
         if isinstance(container_bytes, (tuple, list)):
@@ -438,12 +489,14 @@ class LLMArithmeticCodec:
 
         meta, bitstream = unpack_unp_container(container_bytes)
         cache_mix = meta.is_cache_mixture_enabled if use_cache_mixture is None else use_cache_mixture
+        bigram_mix = meta.is_bigram_cache_enabled if use_bigram_cache is None else use_bigram_cache
         text = self.decompress(
             bitstream,
             num_tokens=meta.num_tokens,
             max_ctx_len=meta.max_ctx_len if meta.max_ctx_len > 0 else None,
             domain_id=meta.domain_id,
             enable_cache_mixture=cache_mix,
+            enable_bigram_cache=bigram_mix,
         )
         is_valid = verify_unp_checksum(meta, text)
         return DecompressResult(text, meta, is_valid)
