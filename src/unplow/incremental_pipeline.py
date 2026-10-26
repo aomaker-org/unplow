@@ -161,14 +161,51 @@ class IncrementalTrainer:
         if not clean_code.strip():
             clean_code = selected_seed
 
-        # Additively persist the extracted, reviewed & refactored training sample
+        # Compute complexity and quality metrics for raw and refactored code
+        raw_metrics = ReplowEngine.compute_code_metrics(raw_text, domain=domain_name)
+        refactored_metrics = ReplowEngine.compute_code_metrics(clean_code, domain=domain_name)
+
+        # Additively persist the raw input, refactored sample, and input manifest
         ext = DOMAIN_EXTENSIONS.get(domain_name, "txt")
         corpus_dir = Path(f"workspace/till_corpus/{domain_name}")
         corpus_dir.mkdir(parents=True, exist_ok=True)
         file_handler = AdditiveFileHandler()
+
+        # 1. Retain raw harvested input before refactoring
+        raw_target_file = corpus_dir / f"raw_input_iter{iteration:03d}.{ext}"
+        safe_raw_file = file_handler.get_next_revision_path(raw_target_file)
+        safe_raw_file.write_text(raw_text, encoding="utf-8")
+
+        # 2. Persist refactored training sample
         target_file = corpus_dir / f"extracted_iter{iteration:03d}.{ext}"
         safe_file = file_handler.get_next_revision_path(target_file)
         safe_file.write_text(clean_code, encoding="utf-8")
+
+        # 3. Create input manifest metadata tracking quality, complexity, and provenance
+        manifest_meta = {
+            "iteration": iteration,
+            "domain": domain_name,
+            "seed_prompt": selected_seed,
+            "timestamp": time.time(),
+            "raw_input_path": str(safe_raw_file),
+            "refactored_path": str(safe_file),
+            "raw_metrics": raw_metrics,
+            "refactored_metrics": refactored_metrics,
+            "quality_score": refactored_metrics["quality_score"],
+            "cyclomatic_complexity": refactored_metrics["cyclomatic_complexity"],
+            "ast_node_count": refactored_metrics["ast_node_count"],
+            "token_diversity": refactored_metrics["token_diversity"],
+            "syntax_valid": refactored_metrics["syntax_valid"],
+        }
+        manifest_target = corpus_dir / f"input_manifest_iter{iteration:03d}.json"
+        safe_manifest_file = file_handler.get_next_revision_path(manifest_target)
+        safe_manifest_file.write_text(json.dumps(manifest_meta, indent=2), encoding="utf-8")
+
+        # Append to unified corpus metadata manifest for downstream filtering
+        unified_manifest_path = Path("workspace/till_corpus/corpus_manifest.jsonl")
+        unified_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(unified_manifest_path, "a", encoding="utf-8") as f_manifest:
+            f_manifest.write(json.dumps(manifest_meta) + "\n")
 
         seed_preview = (
             selected_seed.splitlines()[0] if selected_seed.splitlines() else selected_seed
@@ -178,7 +215,14 @@ class IncrementalTrainer:
             f"(Iteration #{iteration}):"
         )
         print(f"  Source Seed: {seed_preview}")
+        print(f"  Raw Input  : {safe_raw_file}")
         print(f"  Staged Path: {safe_file}")
+        print(
+            f"  Quality    : {refactored_metrics['quality_score']:.2f} | "
+            f"Complexity (CC): {refactored_metrics['cyclomatic_complexity']} | "
+            f"Tokens: {refactored_metrics['token_count']} | "
+            f"Valid: {refactored_metrics['syntax_valid']}"
+        )
         return [clean_code]
 
     def train_domain_incrementally(
@@ -514,6 +558,18 @@ def main() -> None:
         help="Minimum free disk space percentage floor (default: 15.0%)",
     )
     parser.add_argument(
+        "--min-quality-score",
+        type=float,
+        default=float(os.environ.get("MIN_QUALITY_SCORE", "0.0")),
+        help="Filter training inputs by minimum quality score threshold (default: 0.0)",
+    )
+    parser.add_argument(
+        "--min-complexity",
+        type=int,
+        default=int(os.environ.get("MIN_COMPLEXITY", "1")),
+        help="Filter training inputs by minimum cyclomatic complexity (default: 1)",
+    )
+    parser.add_argument(
         "--train-scratch",
         action="store_true",
         default=True,
@@ -583,11 +639,24 @@ def main() -> None:
         for domain in domains:
             corpus_texts = None
             if not args.extract_from_model:
-                # Load corpus texts from staged directory if model extraction is disabled
+                # Load corpus texts from staged directory and filter by manifest metadata if present
                 corpus_dir = Path(f"workspace/till_corpus/{domain}")
                 corpus_texts = []
-                if corpus_dir.exists():
-                    for f in sorted(corpus_dir.glob("*")):
+                manifest_files = sorted(corpus_dir.glob("input_manifest_iter*.json")) if corpus_dir.exists() else []
+                if manifest_files:
+                    for mf in manifest_files:
+                        try:
+                            meta = json.loads(mf.read_text(encoding="utf-8"))
+                            q = meta.get("quality_score", 1.0)
+                            cc = meta.get("cyclomatic_complexity", 1)
+                            if q >= args.min_quality_score and cc >= args.min_complexity:
+                                ref_path = Path(meta.get("refactored_path", ""))
+                                if ref_path.exists():
+                                    corpus_texts.append(ref_path.read_text(encoding="utf-8"))
+                        except Exception:
+                            pass
+                elif corpus_dir.exists():
+                    for f in sorted(corpus_dir.glob("extracted_iter*")):
                         if f.is_file():
                             try:
                                 corpus_texts.append(f.read_text(encoding="utf-8"))

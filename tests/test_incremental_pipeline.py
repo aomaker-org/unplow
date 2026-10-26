@@ -249,6 +249,22 @@ def test_incremental_trainer_scratch_model(tmp_path):
     assert report["trainable_params"] > 0
     assert Path(report["checkpoint_path"]).exists()
 
+    # Verify input retention and manifest metadata
+    corpus_dir = Path("workspace/till_corpus/python")
+    raw_files = list(corpus_dir.glob("raw_input_iter*"))
+    assert len(raw_files) >= 1
+    manifest_files = list(corpus_dir.glob("input_manifest_iter*.json"))
+    assert len(manifest_files) >= 1
+
+    # Verify manifest fields
+    import json
+    meta = json.loads(manifest_files[-1].read_text(encoding="utf-8"))
+    assert "quality_score" in meta
+    assert "cyclomatic_complexity" in meta
+    assert "raw_metrics" in meta
+    assert "refactored_metrics" in meta
+    assert meta["quality_score"] > 0.0
+
 
 # end of file: unplow/tests/test_incremental_pipeline.py
 
