@@ -30,7 +30,7 @@ import torch
 import torch.nn.functional as F
 
 from unplow.eval import PerplexityTracker
-from unplow.models import load_causal_lm, load_local_model
+from unplow.models import create_scratch_model, load_causal_lm, load_local_model
 from unplow.paradigm1 import WeightDecompressor
 from unplow.replow import ReplowEngine
 from unplow.safety import AdditiveFileHandler
@@ -99,9 +99,11 @@ class IncrementalTrainer:
         manifest_path: Optional[str] = None,
         base_checkpoint_dir: Optional[str] = None,
         base_target_dir: Optional[str] = None,
+        target_model: Optional[Any] = None,
     ):
         self.model = model
         self.tokenizer = tokenizer
+        self.target_model = target_model
         self.guardian = TillDiskGuardian(
             manifest_path=manifest_path,
             min_free_pct=min_free_pct,
@@ -128,8 +130,9 @@ class IncrementalTrainer:
         )
         selected_seed = seeds[(iteration - 1) % len(seeds)]
 
+        extraction_source = self.target_model if self.target_model is not None else self.model
         try:
-            decompressor = WeightDecompressor(model=self.model, tokenizer=self.tokenizer)
+            decompressor = WeightDecompressor(model=extraction_source, tokenizer=self.tokenizer)
             records = decompressor.probe_weight_basins(
                 num_samples=num_samples,
                 seq_len=seq_len,
@@ -220,8 +223,10 @@ class IncrementalTrainer:
         tracker = PerplexityTracker(self.model, self.tokenizer)
 
         # Apply parameter isolation guard for large models (> 10M params) on CPU
+        # when not explicitly marked as scratch model training
         total_params = sum(p.numel() for p in self.model.parameters())
-        if total_params > 10_000_000:
+        is_scratch = getattr(self.model, "_is_scratch_model", False)
+        if total_params > 10_000_000 and not is_scratch:
             for p in self.model.parameters():
                 p.requires_grad = False
             unfrozen = False
@@ -509,6 +514,25 @@ def main() -> None:
         help="Minimum free disk space percentage floor (default: 15.0%)",
     )
     parser.add_argument(
+        "--train-scratch",
+        action="store_true",
+        default=True,
+        help="Train a new model initialized from scratch instead of fine-tuning layer 27 (default: True)",
+    )
+    parser.add_argument(
+        "--scratch-layers",
+        type=int,
+        default=int(os.environ.get("SCRATCH_LAYERS", "4")),
+        choices=[4, 6],
+        help="Number of layers for scratch model: 4 or 6 (default: 4)",
+    )
+    parser.add_argument(
+        "--no-scratch",
+        dest="train_scratch",
+        action="store_false",
+        help="Retrain / fine-tune backbone model instead of training from scratch",
+    )
+    parser.add_argument(
         "--extract-from-model",
         action="store_true",
         default=True,
@@ -523,13 +547,27 @@ def main() -> None:
     args = parser.parse_args()
 
     print(f"[*] Loading model substrate '{args.model}' for incremental training...")
-    tokenizer, model, _ = load_causal_lm(model_identifier=args.model)
+    target_tok, target_model, target_path = load_causal_lm(model_identifier=args.model)
+
+    if args.train_scratch:
+        print(f"[*] Initializing new {args.scratch_layers}-layer model from scratch based on '{args.model}'...")
+        tokenizer, train_model = create_scratch_model(
+            model_identifier=target_path,
+            num_layers=args.scratch_layers,
+        )
+        train_model._is_scratch_model = True
+        extraction_model = target_model
+    else:
+        tokenizer = target_tok
+        train_model = target_model
+        extraction_model = None
 
     trainer = IncrementalTrainer(
-        model=model,
+        model=train_model,
         tokenizer=tokenizer,
         manifest_path=args.manifest,
         min_free_pct=args.min_free_pct,
+        target_model=extraction_model,
     )
 
     domains = args.domains or list(TILL_DOMAINS.keys())

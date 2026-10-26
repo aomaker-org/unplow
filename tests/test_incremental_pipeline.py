@@ -5,6 +5,8 @@ Validates discrete epoch increments, loss/perplexity tracking, parameter
 isolation for large backbones, and disk telemetry guardrails.
 """
 
+from pathlib import Path
+
 import pytest
 import torch
 import torch.nn as nn
@@ -211,6 +213,41 @@ def test_incremental_trainer_dynamic_model_extraction(tmp_path):
     assert len(data_iter2[0]) > 0
     # Training data must differ between iterations
     assert data_iter1[0] != data_iter2[0]
+
+
+def test_incremental_trainer_scratch_model(tmp_path):
+    from unplow.models import create_scratch_model
+    # Create 4-layer model from scratch
+    tok, scratch_model = create_scratch_model("mock", num_layers=4)
+    scratch_model._is_scratch_model = True
+    assert len(scratch_model.model.layers) == 4
+
+    # Target model for extraction
+    target_tok, target_model, _ = load_causal_lm("mock")
+
+    trainer = IncrementalTrainer(
+        model=scratch_model,
+        tokenizer=tok,
+        min_free_pct=0.01,
+        base_checkpoint_dir=str(tmp_path / "checkpoints"),
+        base_target_dir=str(tmp_path / "targets"),
+        target_model=target_model,
+    )
+
+    success = trainer.train_domain_incrementally(
+        domain_name="python",
+        iteration=1,
+        extract_from_model=True,
+        total_epochs=1,
+        steps_per_epoch=2,
+        dry_run_offload=True,
+    )
+    assert success is True
+    assert "python" in trainer.domain_reports
+    # All layers should be trainable since it's trained from scratch
+    report = trainer.domain_reports["python"]
+    assert report["trainable_params"] > 0
+    assert Path(report["checkpoint_path"]).exists()
 
 
 # end of file: unplow/tests/test_incremental_pipeline.py

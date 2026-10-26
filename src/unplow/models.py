@@ -14,12 +14,14 @@ import urllib.request
 
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 logger = logging.getLogger("unplow.models")
 
-# Known default local snapshot locations for Qwen2.5-1.5B
+# Known default local snapshot locations for Qwen models
 LOCAL_QWEN_SNAPSHOTS = [
+    Path("models/qwen2.5-coder-0.5b"),
+    Path("/home/fekerr/src/unplow/models/qwen2.5-coder-0.5b"),
     Path("models/qwen2.5-1.5b-instruct"),
     Path("/home/fekerr/src/unplow/models/qwen2.5-1.5b-instruct"),
     Path(
@@ -86,6 +88,43 @@ def load_local_model(model_identifier: Optional[str] = None) -> Tuple[Any, Any]:
     return model, tokenizer
 
 
+def create_scratch_model(
+    model_identifier: Optional[str] = None,
+    num_layers: int = 4,
+    device: Optional[str] = None,
+    dtype: Optional[torch.dtype] = None,
+) -> Tuple[Any, Any]:
+    """Instantiate a new model from scratch (randomly initialized) based on target config.
+
+    Instead of fine-tuning or retraining an existing heavy model (or a single layer),
+    this configures a compact N-layer architecture (e.g. 4 or 6 layers) initialized
+    from scratch, matching the tokenizer and hidden projection geometry of the target
+    model substrate.
+    """
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    dtype = dtype or (torch.float16 if device == "cuda" else torch.float32)
+
+    if model_identifier == "mock":
+        tokenizer = MockByteTokenizer(vocab_size=260)
+        model = MockCausalLM(vocab_size=260, hidden_dim=32, num_layers=num_layers).to(device)
+        return tokenizer, model
+
+    target_path = resolve_model_path(model_identifier)
+    tokenizer = AutoTokenizer.from_pretrained(target_path, local_files_only=Path(target_path).exists())
+
+    config = AutoConfig.from_pretrained(target_path, local_files_only=Path(target_path).exists())
+    config.num_hidden_layers = num_layers
+    if hasattr(config, "max_window_layers") and config.max_window_layers is not None:
+        config.max_window_layers = min(config.max_window_layers, num_layers)
+
+    model = AutoModelForCausalLM.from_config(config)
+    if dtype is not None:
+        model = model.to(dtype=dtype)
+    model = model.to(device)
+    model.train()
+    return tokenizer, model
+
+
 def audit_system_models() -> List[Dict[str, Any]]:
     """Scan and return all local LLM artifacts available on the system."""
     models: List[Dict[str, Any]] = []
@@ -95,12 +134,20 @@ def audit_system_models() -> List[Dict[str, Any]]:
         try:
             r = snap.resolve()
             if r.exists() and (r / "config.json").exists():
+                cfg_data = {}
+                try:
+                    with open(r / "config.json", "r", encoding="utf-8") as f:
+                        cfg_data = json.load(f)
+                except Exception:
+                    pass
+                arch = cfg_data.get("architectures", ["Transformer"])[0]
                 models.append({
                     "type": "safetensors_snapshot",
-                    "name": "Qwen2.5-1.5B-Instruct",
+                    "name": snap.name,
+                    "architecture": arch,
                     "path": str(r),
                     "active_link": str(snap),
-                    "parameters": "1.54B",
+                    "parameters": f"{cfg_data.get('num_hidden_layers', 0)}L",
                     "status": "READY",
                 })
                 break
@@ -289,11 +336,11 @@ class MockModelBody(nn.Module):
 class MockCausalLM(nn.Module):
     """Deterministic causal language model with mock transformer layers for unit tests."""
 
-    def __init__(self, vocab_size: int = 260, hidden_dim: int = 32):
+    def __init__(self, vocab_size: int = 260, hidden_dim: int = 32, num_layers: int = 4):
         super().__init__()
         torch.manual_seed(42)
         self.vocab_size = vocab_size
-        self.model = MockModelBody(vocab_size=vocab_size, hidden_dim=hidden_dim, num_layers=4)
+        self.model = MockModelBody(vocab_size=vocab_size, hidden_dim=hidden_dim, num_layers=num_layers)
         self.embed = self.model.embed_tokens
         self.head = nn.Linear(hidden_dim, vocab_size, bias=False)
         self.lm_head = self.head
