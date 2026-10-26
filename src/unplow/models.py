@@ -389,6 +389,20 @@ class MockCausalLM(nn.Module):
             hidden_states=hidden_states,
         )
 
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 16,
+        **kwargs: Any,
+    ) -> torch.Tensor:
+        """Lightweight autoregressive greedy decoding helper for MockCausalLM."""
+        curr_ids = input_ids.clone()
+        for _ in range(max_new_tokens):
+            out = self.forward(curr_ids, use_cache=False)
+            next_token = torch.argmax(out.logits[:, -1, :], dim=-1, keepdim=True)
+            curr_ids = torch.cat([curr_ids, next_token], dim=-1)
+        return curr_ids
+
 
 # Aliases for explicit mechanistic unit testing
 DeterministicMockCausalLM = MockCausalLM

@@ -111,6 +111,83 @@ class IncrementalTrainer:
         self.base_checkpoint_dir = base_checkpoint_dir
         self.base_target_dir = base_target_dir
         self.domain_reports: Dict[str, Dict[str, Any]] = {}
+        self.global_step_count: int = 0
+        self.step_eval_interval: int = 100
+
+    def compare_models_on_test_prompts(
+        self,
+        test_prompts: Optional[List[str]] = None,
+        max_new_tokens: int = 32,
+    ) -> List[Dict[str, str]]:
+        """Compares generation between target input model and destination scratch model."""
+        prompts = test_prompts or [
+            "def fibonacci(n: int) -> int:\n",
+            "#include <stdint.h>\nuint32_t compute_hash(const char *str) {\n",
+            "pub fn is_prime(n: u64) -> bool {\n",
+        ]
+        results = []
+        target_model = self.target_model if self.target_model is not None else self.model
+        device = next(self.model.parameters()).device
+        target_device = next(target_model.parameters()).device
+
+        print(
+            f"\n{'=' * 80}\n"
+            f"[IncrementalTrainer] Step #{self.global_step_count} Model Generation Comparison (Test Prompts)\n"
+            f"{'=' * 80}"
+        )
+        self.model.eval()
+        target_model.eval()
+
+        with torch.no_grad():
+            for idx, p in enumerate(prompts, 1):
+                p_short = p.strip().replace("\n", " ")
+                print(f"\n--- [Prompt #{idx}] \"{p_short}\" ---")
+
+                # 1. Target input model output
+                input_toks = self.tokenizer(p, return_tensors="pt")
+                t_ids = (
+                    input_toks.input_ids.to(target_device)
+                    if hasattr(input_toks, "input_ids")
+                    else input_toks["input_ids"].to(target_device)
+                )
+                t_out = target_model.generate(
+                    t_ids,
+                    max_new_tokens=max_new_tokens,
+                    pad_token_id=self.tokenizer.eos_token_id or 0,
+                    do_sample=False,
+                )
+                input_model_gen = self.tokenizer.decode(t_out[0], skip_special_tokens=True)
+
+                # 2. Destination scratch model output
+                d_ids = (
+                    input_toks.input_ids.to(device)
+                    if hasattr(input_toks, "input_ids")
+                    else input_toks["input_ids"].to(device)
+                )
+                d_out = self.model.generate(
+                    d_ids,
+                    max_new_tokens=max_new_tokens,
+                    pad_token_id=self.tokenizer.eos_token_id or 0,
+                    do_sample=False,
+                )
+                dest_model_gen = self.tokenizer.decode(d_out[0], skip_special_tokens=True)
+
+                print("[Input Model Generated]:")
+                for line in input_model_gen.splitlines()[:6]:
+                    print(f"  > {line}")
+
+                print("[Destination Scratch Model Generated]:")
+                for line in dest_model_gen.splitlines()[:6]:
+                    print(f"  * {line}")
+
+                results.append({
+                    "prompt": p,
+                    "input_model_gen": input_model_gen,
+                    "dest_model_gen": dest_model_gen,
+                })
+
+        print(f"\n{'=' * 80}\n")
+        return results
 
     def extract_domain_training_data(
         self,
@@ -333,6 +410,14 @@ class IncrementalTrainer:
                     optimizer.step()
                     epoch_loss += float(loss.item())
                     step_count += 1
+                    self.global_step_count += 1
+
+                    # Trigger periodic test prompt comparison every step_eval_interval steps
+                    if (
+                        self.step_eval_interval > 0
+                        and self.global_step_count % self.step_eval_interval == 0
+                    ):
+                        self.compare_models_on_test_prompts()
 
             elapsed = time.perf_counter() - start_time
             self.model.eval()
@@ -589,6 +674,12 @@ def main() -> None:
         help="Retrain / fine-tune backbone model instead of training from scratch",
     )
     parser.add_argument(
+        "--step-eval-interval",
+        type=int,
+        default=int(os.environ.get("STEP_EVAL_INTERVAL", "100")),
+        help="Compare input vs destination model on test prompts every N training steps (default: 100)",
+    )
+    parser.add_argument(
         "--extract-from-model",
         action="store_true",
         default=True,
@@ -625,6 +716,7 @@ def main() -> None:
         min_free_pct=args.min_free_pct,
         target_model=extraction_model,
     )
+    trainer.step_eval_interval = args.step_eval_interval
 
     domains = args.domains or list(TILL_DOMAINS.keys())
     iteration = 0

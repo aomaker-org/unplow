@@ -266,6 +266,31 @@ def test_incremental_trainer_scratch_model(tmp_path):
     assert meta["quality_score"] > 0.0
 
 
+def test_incremental_trainer_model_comparison_on_test_prompts(tmp_path):
+    from unplow.models import create_scratch_model
+    tok, scratch_model = create_scratch_model("mock", num_layers=4)
+    target_tok, target_model, _ = load_causal_lm("mock")
+
+    trainer = IncrementalTrainer(
+        model=scratch_model,
+        tokenizer=tok,
+        target_model=target_model,
+    )
+    # Set interval to 2 steps to verify comparison triggers
+    trainer.step_eval_interval = 2
+
+    # Verify comparison method directly
+    comparisons = trainer.compare_models_on_test_prompts(
+        test_prompts=["def test():\n"],
+        max_new_tokens=4,
+    )
+    assert len(comparisons) == 1
+    assert "input_model_gen" in comparisons[0]
+    assert "dest_model_gen" in comparisons[0]
+    assert len(comparisons[0]["input_model_gen"]) > 0
+    assert len(comparisons[0]["dest_model_gen"]) > 0
+
+
 # end of file: unplow/tests/test_incremental_pipeline.py
 
 
