@@ -9,6 +9,7 @@ and runs domain-specific distillation pipelines into Bayesian CTS .unp container
 from dataclasses import dataclass
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -123,19 +124,35 @@ class DiskTelemetry:
     total_gb: float
     free_gb: float
     free_percent: float
+    host_total_gb: Optional[float] = None
+    host_free_gb: Optional[float] = None
+    host_free_percent: Optional[float] = None
+    is_wsl: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "total_gb": self.total_gb,
             "free_gb": self.free_gb,
             "free_percent": self.free_percent,
+            "is_wsl": self.is_wsl,
         }
+        if self.host_total_gb is not None:
+            d["host_total_gb"] = self.host_total_gb
+            d["host_free_gb"] = self.host_free_gb
+            d["host_free_percent"] = self.host_free_percent
+        return d
 
     def __str__(self) -> str:
-        return (
+        s = (
             f"DiskTelemetry(total_gb={self.total_gb}, "
             f"free_gb={self.free_gb}, free_percent={self.free_percent}%)"
         )
+        if self.is_wsl and self.host_free_percent is not None:
+            s += (
+                f" [Windows Host: total_gb={self.host_total_gb}, "
+                f"free_gb={self.host_free_gb}, free_percent={self.host_free_percent}%]"
+            )
+        return s
 
 
 class TillDiskGuardian:
@@ -152,11 +169,64 @@ class TillDiskGuardian:
         self.manifest_path = manifest_path
 
     def check_disk(self, path: str = "/") -> DiskTelemetry:
-        usage = shutil.disk_usage(path)
+        """Inspects disk usage for given path, taking into account Windows host space on WSL."""
+        # On WSL, check working directory or path's actual mount rather than virtual root /
+        probe_path = path
+        if probe_path == "/" and os.path.exists("/home/fekerr/src/unplow"):
+            probe_path = "/home/fekerr/src/unplow"
+
+        usage = shutil.disk_usage(probe_path)
         total_gb = usage.total / (1024**3)
         free_gb = usage.free / (1024**3)
-        free_pct = (usage.free / usage.total) * 100.0
-        return DiskTelemetry(round(total_gb, 2), round(free_gb, 2), round(free_pct, 2))
+        free_pct = (usage.free / usage.total) * 100.0 if usage.total > 0 else 0.0
+
+        # Detect WSL and probe Windows host drive (e.g. /mnt/c or WSL mount points)
+        is_wsl = False
+        host_total_gb: Optional[float] = None
+        host_free_gb: Optional[float] = None
+        host_free_pct: Optional[float] = None
+
+        if Path("/proc/version").exists():
+            try:
+                with open("/proc/version", "r", encoding="utf-8") as f:
+                    content = f.read().lower()
+                    if "microsoft" in content or "wsl" in content:
+                        is_wsl = True
+            except Exception:
+                pass
+
+        if is_wsl:
+            # Check primary Windows host mount point
+            for win_mount in ["/mnt/c", "/mnt/d"]:
+                if os.path.exists(win_mount):
+                    try:
+                        win_usage = shutil.disk_usage(win_mount)
+                        host_total_gb = round(win_usage.total / (1024**3), 2)
+                        host_free_gb = round(win_usage.free / (1024**3), 2)
+                        host_free_pct = (
+                            round((win_usage.free / win_usage.total) * 100.0, 2)
+                            if win_usage.total > 0
+                            else 0.0
+                        )
+                        break
+                    except Exception:
+                        pass
+
+        # If on WSL, effective free percentage should reflect the bottleneck
+        # (either the WSL VHD virtual drive or the underlying Windows host drive)
+        effective_free_pct = free_pct
+        if is_wsl and host_free_pct is not None:
+            effective_free_pct = min(free_pct, host_free_pct)
+
+        return DiskTelemetry(
+            total_gb=round(total_gb, 2),
+            free_gb=round(free_gb, 2),
+            free_percent=round(effective_free_pct, 2),
+            host_total_gb=host_total_gb,
+            host_free_gb=host_free_gb,
+            host_free_percent=host_free_pct,
+            is_wsl=is_wsl,
+        )
 
     def load_manifest(self, manifest_path: Optional[str] = None) -> Dict[str, Any]:
         """Loads and parses TOML manifest if available."""

@@ -35,6 +35,12 @@ def test_till_disk_guardian_check_disk():
     assert telem.total_gb > 0
     assert telem.free_gb > 0
     assert 0 <= telem.free_percent <= 100.0
+    # In WSL environment, host disk telemetry should be captured
+    if telem.is_wsl:
+        assert telem.host_total_gb is not None
+        assert telem.host_free_gb is not None
+        assert telem.host_free_percent is not None
+        assert "Windows Host" in str(telem)
 
 
 def test_till_disk_guardian_manifest_and_candidates(tmp_path):
