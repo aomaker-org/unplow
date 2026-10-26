@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 # Remove script directory from sys.path to avoid shadowing standard library modules (e.g. queue)
@@ -113,6 +114,48 @@ class IncrementalTrainer:
         self.domain_reports: Dict[str, Dict[str, Any]] = {}
         self.global_step_count: int = 0
         self.step_eval_interval: int = 100
+        self.heartbeat_path = Path("logs/heartbeat/unplow.json")
+        self.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def emit_heartbeat(
+        self,
+        domain: Optional[str] = None,
+        epoch: Optional[int] = None,
+        total_epochs: Optional[int] = None,
+        loss: Optional[float] = None,
+        ppl: Optional[float] = None,
+    ) -> None:
+        """Records process telemetry heartbeat complying with Directive 17."""
+        try:
+            import resource
+            rss_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2)
+        except Exception:
+            rss_mb = 0.0
+
+        telemetry = self.guardian.check_disk()
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "TRAINING",
+            "global_step": self.global_step_count,
+            "current_domain": domain,
+            "epoch": epoch,
+            "total_epochs": total_epochs,
+            "recent_loss": round(loss, 4) if loss is not None else None,
+            "recent_perplexity": round(ppl, 2) if ppl is not None else None,
+            "rss_mb": rss_mb,
+            "storage_free_gb": telemetry.free_gb,
+            "storage_free_pct": telemetry.free_percent,
+            "is_wsl": telemetry.is_wsl,
+            "host_free_pct": telemetry.host_free_percent,
+        }
+        tmp_hb = self.heartbeat_path.parent / f".{self.heartbeat_path.name}.tmp"
+        with open(tmp_hb, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp_hb, self.heartbeat_path)
+        print(
+            f"[IncrementalTrainer Heartbeat] Step #{self.global_step_count} | Domain: {domain or 'N/A'} "
+            f"| Loss: {payload['recent_loss']} | Free: {telemetry.free_gb} GB ({telemetry.free_percent}%)"
+        )
 
     def compare_models_on_test_prompts(
         self,
@@ -436,6 +479,13 @@ class IncrementalTrainer:
                 f"[IncrementalTrainer] [till-{domain_name}] Epoch {epoch}/{total_epochs} "
                 f"completed in {elapsed:.2f}s | Step Loss: {avg_step_loss:.4f} | "
                 f"Corpus Loss: {loss_val:.4f} | PPL: {ppl_val:.2f}"
+            )
+            self.emit_heartbeat(
+                domain=domain_name,
+                epoch=epoch,
+                total_epochs=total_epochs,
+                loss=avg_step_loss,
+                ppl=ppl_val,
             )
 
             # Enforce disk space constraint (>= 15% free partition space)
