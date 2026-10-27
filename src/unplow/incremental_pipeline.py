@@ -747,6 +747,24 @@ def main() -> None:
         help="Compare input vs destination model on test prompts every N training steps (default: 100)",
     )
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=True,
+        help="Auto-resume model weights from the latest saved checkpoint if present (default: True)",
+    )
+    parser.add_argument(
+        "--checkpoint-file",
+        type=str,
+        default=None,
+        help="Explicit path to model checkpoint (.pt) to load",
+    )
+    parser.add_argument(
+        "--no-resume",
+        dest="resume",
+        action="store_false",
+        help="Do not resume; force initializing completely from fresh scratch weights",
+    )
+    parser.add_argument(
         "--extract-from-model",
         action="store_true",
         default=True,
@@ -771,6 +789,34 @@ def main() -> None:
         )
         train_model._is_scratch_model = True
         extraction_model = target_model
+
+        # Check for latest existing checkpoint to resume
+        resumed_path = None
+        if args.checkpoint_file and Path(args.checkpoint_file).exists():
+            resumed_path = Path(args.checkpoint_file)
+        elif args.resume:
+            # Find latest 4-layer / scratch checkpoint across till-* directories
+            candidate_checkpoints = []
+            for d in Path("models").glob("till-*-lora"):
+                for cp in d.glob("adapter_model_rev*.pt"):
+                    try:
+                        # Only match large full-weights checkpoints (> 100MB)
+                        if cp.stat().st_size > 100_000_000:
+                            candidate_checkpoints.append((cp.stat().st_mtime, cp))
+                    except Exception:
+                        pass
+            if candidate_checkpoints:
+                candidate_checkpoints.sort(key=lambda x: x[0])
+                resumed_path = candidate_checkpoints[-1][1]
+
+        if resumed_path:
+            try:
+                print(f"[*] Resuming destination model weights from latest checkpoint: {resumed_path}")
+                state = torch.load(resumed_path, map_location="cpu", weights_only=True)
+                missing, unexpected = train_model.load_state_dict(state, strict=False)
+                print(f"[+] Successfully resumed weights (Missing: {len(missing)}, Unexpected: {len(unexpected)})")
+            except Exception as e:
+                print(f"[!] Warning: Failed to load checkpoint {resumed_path}: {e}")
     else:
         tokenizer = target_tok
         train_model = target_model
