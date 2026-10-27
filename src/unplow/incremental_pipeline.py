@@ -725,7 +725,7 @@ def main() -> None:
         "--min-free-pct",
         type=float,
         default=float(os.environ.get("MIN_FREE_PCT", "15.0")),
-        help="Minimum free disk space percentage floor (default: 15.0%)",
+        help="Minimum free disk space percentage floor (default: 15.0%%)",
     )
     parser.add_argument(
         "--min-quality-score",
