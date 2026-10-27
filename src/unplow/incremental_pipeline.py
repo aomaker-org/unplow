@@ -381,6 +381,24 @@ class IncrementalTrainer:
         if extract_from_model is None:
             extract_from_model = corpus_texts is None
 
+        # Re-use previously extracted training data if already staged for this iteration/seed
+        if (extract_from_model or not corpus_texts) and corpus_texts is None:
+            corpus_dir = Path(f"workspace/till_corpus/{domain_name}")
+            ext = DOMAIN_EXTENSIONS.get(domain_name, "txt")
+            existing_candidates = sorted(corpus_dir.glob(f"extracted_iter{iteration:03d}*.{ext}")) if corpus_dir.exists() else []
+            if existing_candidates:
+                try:
+                    reused_text = existing_candidates[-1].read_text(encoding="utf-8")
+                    if reused_text.strip():
+                        print(
+                            f"[IncrementalTrainer] Re-using previously extracted training data for "
+                            f"till-{domain_name} (Iteration #{iteration}):\n"
+                            f"  Re-used Path: {existing_candidates[-1]}"
+                        )
+                        corpus_texts = [reused_text]
+                except Exception:
+                    corpus_texts = None
+
         if extract_from_model or not corpus_texts:
             corpus_texts = self.extract_domain_training_data(
                 domain_name=domain_name,
