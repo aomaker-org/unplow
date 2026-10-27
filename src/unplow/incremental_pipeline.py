@@ -9,6 +9,7 @@ free disk space threshold is strictly maintained.
 
 import argparse
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -29,6 +30,8 @@ for _p in (_repo_root, _src_dir):
 
 import torch
 import torch.nn.functional as F
+
+logger = logging.getLogger("unplow.incremental_pipeline")
 
 from unplow.eval import PerplexityTracker
 from unplow.models import create_scratch_model, load_causal_lm, load_local_model
@@ -116,6 +119,8 @@ class IncrementalTrainer:
         self.step_eval_interval: int = 100
         self.heartbeat_path = Path("logs/heartbeat/unplow.json")
         self.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        self.eval_log_path = Path("logs/evaluations/step_comparisons.jsonl")
+        self.eval_log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def emit_heartbeat(
         self,
@@ -228,6 +233,18 @@ class IncrementalTrainer:
                     "input_model_gen": input_model_gen,
                     "dest_model_gen": dest_model_gen,
                 })
+
+        # Persist test evaluation comparisons to dedicated JSONL log
+        try:
+            record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "global_step": self.global_step_count,
+                "comparisons": results,
+            }
+            with open(self.eval_log_path, "a", encoding="utf-8") as f_eval:
+                f_eval.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.warning("Failed to append test prompt comparisons to %s: %s", self.eval_log_path, e)
 
         print(f"\n{'=' * 80}\n")
         return results
