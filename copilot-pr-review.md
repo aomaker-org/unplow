@@ -11,7 +11,8 @@ review summaries extracted across all repository PRs.
 
 - **Formatting & Column Limits (Directive 04)**: 5 actionable findings
 - **Dead Code, Unused Imports & Stubs**: 3 actionable findings
-- **Documentation & Implementation Discrepancies**: 1 actionable findings
+- **Documentation & Implementation Discrepancies**: 2 actionable findings
+- **Test Coverage & Fragility**: 1 actionable findings
 - **General Logic & Design Hygiene**: 1 actionable findings
 
 ## Formatting & Column Limits (Directive 04)
@@ -73,12 +74,28 @@ review summaries extracted across all repository PRs.
 
 ## Documentation & Implementation Discrepancies
 
+### [PR #31] `src/unplow/grammars/__init__.py` (Line 35)
+- **Issue**: The docstring says the callable "biases or masks invalid
+  transitions", but the implementation only adds a positive bias (`+1.5`) to the
+  logits of tokens that match legal grammar keywords (`legal_keyword_ids`); it
+  never masks or down-weights any invalid transition. Describing it as acting on
+  "invalid...
+
 ### [PR #28] `src/unplow/grammars/__init__.py` (Line 37)
 - **Issue**: `build_mask_fn` unconditionally returns `None`, so the core
   grammar-masking feature introduced by this PR never actually runs. Because
   `mask_fn` is always `None`, the `grammar_mask_fn` hook added in
   `probe_weight_basins` is skipped, the loaded `self.grammars` are never
   consulted, and the `c_systems....
+
+## Test Coverage & Fragility
+
+### [PR #31] `src/unplow/grammars/__init__.py` (Line 64)
+- **Issue**: `build_mask_fn` now contains real logic (keyword extraction, token-
+  id resolution, and per-step logit biasing) but the `grammars` module has no
+  unit test, unlike nearly every other `src/unplow/` module (e.g.
+  `test_circuits.py`, `test_conditioning.py`, `test_steering.py`). Consider
+  adding a test that ...
 
 ## General Logic & Design Hygiene
 
