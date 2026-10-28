@@ -1,4 +1,4 @@
-# Path: tests/test_grammars.py
+# Path: unplow/tests/test_grammars.py
 # Unit tests for DomainGrammarEngine and keyword logit biasing
 # Max Line Length: 120 Chars
 
@@ -85,4 +85,4 @@ def test_grammar_engine_empty_logits():
     result = mask_fn(torch.tensor([[1]]), empty_logits)
     assert result.shape[-1] == 0
 
-# <!-- end of file: tests/test_grammars.py -->
+# end of file: unplow/tests/test_grammars.py
