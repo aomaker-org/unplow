@@ -2,9 +2,14 @@
 # Batch Distillation Runner with Decoupled Process Pool
 # Max Column: 80 Columns
 
-Here is an asynchronous, worker-bounded batch pipeline designed to query a local instance of `Qwen/Qwen2.5-Coder` (via its OpenAI-compatible completions API endpoint, matching local runners like `vLLM`, `llama.cpp` server, or `Ollama`) and evaluate generated candidate solutions in parallel sub-processes.
+Here is an asynchronous, worker-bounded batch pipeline designed to query a local
+instance of `Qwen/Qwen2.5-Coder` (via its OpenAI-compatible completions API
+endpoint, matching local runners like `vLLM`, `llama.cpp` server, or `Ollama`)
+and evaluate generated candidate solutions in parallel sub-processes.
 
-The pipeline applies an **async inference pool** decoupled from a **process execution pool**, so heavy C compilation (`gcc`) and execution runs do not block network I/O or token streaming.
+The pipeline applies an **async inference pool** decoupled from a **process
+execution pool**, so heavy C compilation (`gcc`) and execution runs do not block
+network I/O or token streaming.
 
 ```python
 #!/usr/bin/env python3
@@ -273,16 +278,24 @@ if __name__ == "__main__":
 ### Key Operational Characteristics
 
 1. **Decoupled Workloads:**
-* Inference uses `httpx.AsyncClient` throttled by `asyncio.Semaphore(args.concurrency)`, preventing connection drops or GPU/server queue overruns.
-* Verification uses `concurrent.futures.ProcessPoolExecutor(max_workers=args.workers)`, isolating compilation timeouts and crash isolation away from the main event loop.
+* Inference uses `httpx.AsyncClient` throttled by
+  `asyncio.Semaphore(args.concurrency)`, preventing connection drops or
+  GPU/server queue overruns.
+* Verification uses
+  `concurrent.futures.ProcessPoolExecutor(max_workers=args.workers)`, isolating
+  compilation timeouts and crash isolation away from the main event loop.
 
 
 2. **Adaptive Temperature Scheduling:**
-* Attempt 1 defaults to $\tau = 0.20$ to exploit low-entropy, high-likelihood routines.
-* If the first attempt fails compilation or an assertion, attempt 2 and 3 bump temperature to $\tau = 0.70$ to diverge out of bad parameter basins.
+* Attempt 1 defaults to $\tau = 0.20$ to exploit low-entropy, high-likelihood
+  routines.
+* If the first attempt fails compilation or an assertion, attempt 2 and 3 bump
+  temperature to $\tau = 0.70$ to diverge out of bad parameter basins.
 
 
 3. **Additive Manifest Flushes:**
-* The file at `--output` updates after every passed verification via `asyncio.as_completed()`, so progress is preserved immediately even if a batch run is terminated early.
+* The file at `--output` updates after every passed verification via
+  `asyncio.as_completed()`, so progress is preserved immediately even if a batch
+  run is terminated early.
 
 <!-- end of file: unplow/inbox/gemweb105.md -->

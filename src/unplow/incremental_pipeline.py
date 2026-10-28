@@ -184,56 +184,61 @@ class IncrementalTrainer:
             f"[IncrementalTrainer] Step #{self.global_step_count} Model Generation Comparison (Test Prompts)\n"
             f"{'=' * 80}"
         )
+        was_training = self.model.training
         self.model.eval()
         target_model.eval()
 
-        with torch.no_grad():
-            for idx, p in enumerate(prompts, 1):
-                p_short = p.strip().replace("\n", " ")
-                print(f"\n--- [Prompt #{idx}] \"{p_short}\" ---")
+        try:
+            with torch.no_grad():
+                for idx, p in enumerate(prompts, 1):
+                    p_short = p.strip().replace("\n", " ")
+                    print(f"\n--- [Prompt #{idx}] \"{p_short}\" ---")
 
-                # 1. Target input model output
-                input_toks = self.tokenizer(p, return_tensors="pt")
-                t_ids = (
-                    input_toks.input_ids.to(target_device)
-                    if hasattr(input_toks, "input_ids")
-                    else input_toks["input_ids"].to(target_device)
-                )
-                t_out = target_model.generate(
-                    t_ids,
-                    max_new_tokens=max_new_tokens,
-                    pad_token_id=self.tokenizer.eos_token_id or 0,
-                    do_sample=False,
-                )
-                input_model_gen = self.tokenizer.decode(t_out[0], skip_special_tokens=True)
+                    # 1. Target input model output
+                    input_toks = self.tokenizer(p, return_tensors="pt")
+                    t_ids = (
+                        input_toks.input_ids.to(target_device)
+                        if hasattr(input_toks, "input_ids")
+                        else input_toks["input_ids"].to(target_device)
+                    )
+                    t_out = target_model.generate(
+                        t_ids,
+                        max_new_tokens=max_new_tokens,
+                        pad_token_id=self.tokenizer.eos_token_id or 0,
+                        do_sample=False,
+                    )
+                    input_model_gen = self.tokenizer.decode(t_out[0], skip_special_tokens=True)
 
-                # 2. Destination scratch model output
-                d_ids = (
-                    input_toks.input_ids.to(device)
-                    if hasattr(input_toks, "input_ids")
-                    else input_toks["input_ids"].to(device)
-                )
-                d_out = self.model.generate(
-                    d_ids,
-                    max_new_tokens=max_new_tokens,
-                    pad_token_id=self.tokenizer.eos_token_id or 0,
-                    do_sample=False,
-                )
-                dest_model_gen = self.tokenizer.decode(d_out[0], skip_special_tokens=True)
+                    # 2. Destination scratch model output
+                    d_ids = (
+                        input_toks.input_ids.to(device)
+                        if hasattr(input_toks, "input_ids")
+                        else input_toks["input_ids"].to(device)
+                    )
+                    d_out = self.model.generate(
+                        d_ids,
+                        max_new_tokens=max_new_tokens,
+                        pad_token_id=self.tokenizer.eos_token_id or 0,
+                        do_sample=False,
+                    )
+                    dest_model_gen = self.tokenizer.decode(d_out[0], skip_special_tokens=True)
 
-                print("[Input Model Generated]:")
-                for line in input_model_gen.splitlines()[:6]:
-                    print(f"  > {line}")
+                    print("[Input Model Generated]:")
+                    for line in input_model_gen.splitlines()[:6]:
+                        print(f"  > {line}")
 
-                print("[Destination Scratch Model Generated]:")
-                for line in dest_model_gen.splitlines()[:6]:
-                    print(f"  * {line}")
+                    print("[Destination Scratch Model Generated]:")
+                    for line in dest_model_gen.splitlines()[:6]:
+                        print(f"  * {line}")
 
-                results.append({
-                    "prompt": p,
-                    "input_model_gen": input_model_gen,
-                    "dest_model_gen": dest_model_gen,
-                })
+                    results.append({
+                        "prompt": p,
+                        "input_model_gen": input_model_gen,
+                        "dest_model_gen": dest_model_gen,
+                    })
+        finally:
+            if was_training:
+                self.model.train()
 
         # Persist test evaluation comparisons to dedicated JSONL log
         try:
