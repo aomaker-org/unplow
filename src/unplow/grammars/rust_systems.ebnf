@@ -1,0 +1,91 @@
+# Path: unplow/src/unplow/grammars/rust_systems.ebnf
+# Rust Systems Subset EBNF Grammar
+# Max Column: 80 Columns
+
+?start: source_file
+
+source_file: (use_declaration | struct_definition | impl_block | function_definition)+
+
+use_declaration: "use" path ("::" "{" ident_list "}")? ";"
+path: IDENTIFIER ("::" IDENTIFIER)*
+ident_list: IDENTIFIER ("," IDENTIFIER)*
+
+struct_definition: ("pub" WS)? "struct" IDENTIFIER generic_params? "{" (struct_field ",")* "}"
+struct_field: ("pub" WS)? IDENTIFIER ":" type
+generic_params: "<" generic_param ("," generic_param)* ">"
+generic_param: LIFETIME | IDENTIFIER
+
+impl_block: "impl" generic_params? (IDENTIFIER "for")? IDENTIFIER generic_params? "{" function_definition* "}"
+
+function_definition: ("pub" WS)? ("unsafe" WS)? "fn" IDENTIFIER generic_params? "(" param_list? ")" ("->" type)? block
+
+param_list: self_param ("," param)* | param ("," param)*
+self_param: ("&" LIFETIME?)? ("mut" WS)? "self"
+param: ("mut" WS)? IDENTIFIER ":" type
+
+type: reference_type 
+    | slice_type 
+    | array_type 
+    | tuple_type 
+    | primitive_type 
+    | path_type
+
+primitive_type: "u8" | "u16" | "u32" | "u64" | "usize" 
+              | "i8" | "i16" | "i32" | "i64" | "isize" 
+              | "bool" | "f32" | "f64"
+
+reference_type: "&" LIFETIME? ("mut" WS)? type
+slice_type: "[" type "]"
+array_type: "[" type ";" NUMBER "]"
+tuple_type: "(" (type ("," type)*)? ")"
+path_type: path ("<" type ("," type)* ">")?
+
+block: "{" statement* expression? "}"
+
+statement: let_statement
+         | assignment_statement
+         | expression_statement
+         | return_statement
+
+let_statement: "let" ("mut" WS)? IDENTIFIER (":" type)? ("=" expression)? ";"
+assignment_statement: lvalue ("=" | "+=" | "-=" | "*=" | "&=" | "|=" | "^=" | "<<=" | ">>=") expression ";"
+expression_statement: expression ";"
+return_statement: "return" expression? ";"
+
+expression: if_expression
+          | match_expression
+          | loop_expression
+          | binary_expression
+          | primary_expr
+
+if_expression: "if" expression block ("else" (block | if_expression))?
+match_expression: "match" expression "{" (match_arm ",")* "}"
+match_arm: pattern "=>" (block | expression)
+pattern: "_" | IDENTIFIER | path ("(" pattern_list? ")")? | NUMBER
+pattern_list: pattern ("," pattern)*
+
+loop_expression: ("while" expression | "loop") block
+
+binary_expression: expression BIN_OP expression
+BIN_OP: "||" | "&&" | "==" | "!=" | "<" | "<=" | ">" | ">="
+      | "|" | "^" | "&" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%"
+
+primary_expr: "(" expression ")"
+            | path ("(" (expression ("," expression)*)? ")")?
+            | path "{" (field_init ",")* "}"
+            | lvalue
+            | NUMBER
+            | STRING_LITERAL
+            | "true" | "false"
+
+field_init: IDENTIFIER ":" expression
+lvalue: ("*" | "&" ("mut" WS)?)? IDENTIFIER ("." IDENTIFIER | "[" expression "]")*
+
+IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
+LIFETIME: /'[a-zA-Z_][a-zA-Z0-9_]*/
+NUMBER: /0x[0-9a-fA-F]+|[0-9]+([uif](8|16|32|64|size))?/
+STRING_LITERAL: /"([^"\\]|\\.)*"/
+WS: /[ \t\n\r]+/
+%ignore WS
+
+# end of file: unplow/src/unplow/grammars/rust_systems.ebnf

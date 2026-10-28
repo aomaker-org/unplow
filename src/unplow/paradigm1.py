@@ -108,11 +108,14 @@ class WeightDecompressor:
         top_k: int = 60,
         seed_prefixes: Optional[List[str]] = None,
         use_mechanistic_seeds: bool = False,
+        grammar_mask_fn: Optional[Any] = None,
     ) -> List[ExtractedRecord]:
         """Probe LLM parameter space via temperature-decayed exploration.
 
         Steps into diverse semantic basins during `explore_steps` and then
         anneals into low-temperature greedy extraction to follow memorized basins.
+        Optionally applies `grammar_mask_fn(input_ids, logits)` at each step to enforce
+        Context-Free Grammar (CFG) constraints and mask illegal transitions to -inf.
         """
         if not seed_prefixes:
             if use_mechanistic_seeds:
@@ -156,6 +159,10 @@ class WeightDecompressor:
                 )
                 past_key_values = outputs.past_key_values
                 logits = outputs.logits[:, -1, :].to(torch.float32)
+
+                # 1. CFG Logit Masking (Mask illegal transitions to -inf)
+                if grammar_mask_fn is not None:
+                    logits = grammar_mask_fn(input_ids, logits)
 
                 temp = temp_explore if step < explore_steps else temp_lock
                 scaled_logits = logits / max(temp, 1e-4)
