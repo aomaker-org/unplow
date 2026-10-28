@@ -34,6 +34,7 @@ import torch.nn.functional as F
 logger = logging.getLogger("unplow.incremental_pipeline")
 
 from unplow.eval import PerplexityTracker
+from unplow.grammars import DomainGrammarEngine
 from unplow.models import create_scratch_model, load_causal_lm, load_local_model
 from unplow.paradigm1 import WeightDecompressor
 from unplow.replow import ReplowEngine
@@ -270,6 +271,8 @@ class IncrementalTrainer:
         extraction_source = self.target_model if self.target_model is not None else self.model
         try:
             decompressor = WeightDecompressor(model=extraction_source, tokenizer=self.tokenizer)
+            grammar_engine = DomainGrammarEngine(tokenizer=self.tokenizer)
+            mask_fn = grammar_engine.build_mask_fn(domain_name)
             records = decompressor.probe_weight_basins(
                 num_samples=num_samples,
                 seq_len=seq_len,
@@ -277,6 +280,7 @@ class IncrementalTrainer:
                 explore_steps=6,
                 temp_explore=1.1,
                 temp_lock=0.3,
+                grammar_mask_fn=mask_fn,
             )
             raw_text = records[0].text if records else selected_seed
         except Exception:
