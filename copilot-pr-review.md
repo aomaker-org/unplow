@@ -9,11 +9,10 @@ review summaries extracted across all repository PRs.
 
 ## Summary of Findings by Category
 
-- **Formatting & Column Limits (Directive 04)**: 5 actionable findings
-- **Dead Code, Unused Imports & Stubs**: 3 actionable findings
-- **Documentation & Implementation Discrepancies**: 2 actionable findings
-- **Test Coverage & Fragility**: 1 actionable findings
-- **General Logic & Design Hygiene**: 1 actionable findings
+- **Formatting & Column Limits (Directive 04)**: 4 actionable findings
+- **Test Coverage & Fragility**: 3 actionable findings
+- **Dead Code, Unused Imports & Stubs**: 2 actionable findings
+- **Documentation & Implementation Discrepancies**: 1 actionable findings
 
 ## Formatting & Column Limits (Directive 04)
 
@@ -44,11 +43,28 @@ review summaries extracted across all repository PRs.
   exceeds 80 columns. Measured maximum line widths are: gemweb102.md 448 cols
   (this...
 
-### [PR #27] `inbox/gemweb101.md` (Line 57)
-- **Issue**: This EBNF line is 124 columns, exceeding the 120-char limit for
-  code mandated by AI.md Directive 04 (summarized in AGENTS.md). Lark rule
-  definitions can continue across lines, so wrapping the alternation keeps it
-  within the limit.
+## Test Coverage & Fragility
+
+### [PR #32] `tests/test_grammars.py` (Line 1)
+- **Issue**: The `# Path:` header omits the `unplow/` workspace prefix that
+  every other file in the repo uses (e.g. `# Path:
+  unplow/tests/test_circuits.py` across all 32 test files, and `# Path:
+  unplow/src/unplow/grammars/__init__.py`). This deviates from the mandatory
+  file-path-header convention. Please include...
+
+### [PR #32] `tests/test_grammars.py` (Line 88)
+- **Issue**: This footer uses the Markdown HTML-comment style (`# <!-- end of
+  file: ... -->`), but every Python file in the repo uses a plain `# end of
+  file: unplow/<relpath>` footer (all 32 files under `tests/` follow this exact
+  format). It also drops the `unplow/` workspace prefix. Please align the footer
+  with...
+
+### [PR #31] `src/unplow/grammars/__init__.py` (Line 64)
+- **Issue**: `build_mask_fn` now contains real logic (keyword extraction, token-
+  id resolution, and per-step logit biasing) but the `grammars` module has no
+  unit test, unlike nearly every other `src/unplow/` module (e.g.
+  `test_circuits.py`, `test_conditioning.py`, `test_steering.py`). Consider
+  adding a test that ...
 
 ## Dead Code, Unused Imports & Stubs
 
@@ -65,13 +81,6 @@ review summaries extracted across all repository PRs.
   this tooling is meant to surface.  This issue also appears on line 20 of the
   same file.
 
-### [PR #27] `inbox/gemweb101.md` (Line 218)
-- **Issue**: The comment states the parser "immediately shifts across the tokens
-  in `initial_code`" to guarantee subsequent predictions complete the AST, but
-  `initial_code` is never used in this method: `CFGGuide(grammar_str,
-  self.tokenizer)` is constructed only from the grammar and tokenizer. As
-  written, the co...
-
 ## Documentation & Implementation Discrepancies
 
 ### [PR #31] `src/unplow/grammars/__init__.py` (Line 35)
@@ -80,30 +89,5 @@ review summaries extracted across all repository PRs.
   logits of tokens that match legal grammar keywords (`legal_keyword_ids`); it
   never masks or down-weights any invalid transition. Describing it as acting on
   "invalid...
-
-### [PR #28] `src/unplow/grammars/__init__.py` (Line 37)
-- **Issue**: `build_mask_fn` unconditionally returns `None`, so the core
-  grammar-masking feature introduced by this PR never actually runs. Because
-  `mask_fn` is always `None`, the `grammar_mask_fn` hook added in
-  `probe_weight_basins` is skipped, the loaded `self.grammars` are never
-  consulted, and the `c_systems....
-
-## Test Coverage & Fragility
-
-### [PR #31] `src/unplow/grammars/__init__.py` (Line 64)
-- **Issue**: `build_mask_fn` now contains real logic (keyword extraction, token-
-  id resolution, and per-step logit biasing) but the `grammars` module has no
-  unit test, unlike nearly every other `src/unplow/` module (e.g.
-  `test_circuits.py`, `test_conditioning.py`, `test_steering.py`). Consider
-  adding a test that ...
-
-## General Logic & Design Hygiene
-
-### [PR #28] `src/unplow/incremental_pipeline.py` (Line 275)
-- **Issue**: The PR description states the grammar engine is connected to
-  `extract_and_stage_from_model()`, but no such method exists in this file — the
-  integration is actually in `extract_domain_training_data()`. Please align the
-  PR description with the actual method name to avoid confusion for future
-  readers.
 
 <!-- end of file: copilot-pr-review.md -->

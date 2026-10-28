@@ -3,7 +3,130 @@
 
 # Copilot Pull Request Review Comments & Findings
 
-Total Extracted Copilot Artifacts: 17
+Total Extracted Copilot Artifacts: 14
+
+## PR #32: fix(grammars): align docstring with positive logit biasing and add unit test suite
+- **URL**: https://github.com/aomaker-org/unplow/pull/32
+- **Type**: `inline_comment`
+- **User**: `Copilot`
+- **Created At**: 2026-10-28T20:12:34Z
+- **File**: `tests/test_grammars.py` (Line: 1)
+- **Comment URL**: https://github.com/aomaker-org/unplow/pull/32#discussion_r4405576411
+
+### Content
+```markdown
+The `# Path:` header omits the `unplow/` workspace prefix that every other file
+in the repo uses (e.g. `# Path: unplow/tests/test_circuits.py` across all 32
+test files, and `# Path: unplow/src/unplow/grammars/__init__.py`). This deviates
+from the mandatory file-path-header convention. Please include the prefix for
+consistency.
+```
+
+---
+
+## PR #32: fix(grammars): align docstring with positive logit biasing and add unit test suite
+- **URL**: https://github.com/aomaker-org/unplow/pull/32
+- **Type**: `inline_comment`
+- **User**: `Copilot`
+- **Created At**: 2026-10-28T20:12:34Z
+- **File**: `tests/test_grammars.py` (Line: 88)
+- **Comment URL**: https://github.com/aomaker-org/unplow/pull/32#discussion_r4405576486
+
+### Content
+```markdown
+This footer uses the Markdown HTML-comment style (`# <!-- end of file: ...
+-->`), but every Python file in the repo uses a plain `# end of file:
+unplow/<relpath>` footer (all 32 files under `tests/` follow this exact format).
+It also drops the `unplow/` workspace prefix. Please align the footer with the
+Python-file convention.
+```
+
+---
+
+## PR #32: fix(grammars): align docstring with positive logit biasing and add unit test suite
+- **URL**: https://github.com/aomaker-org/unplow/pull/32
+- **Type**: `review_summary`
+- **User**: `copilot-pull-request-reviewer[bot]`
+- **Created At**: 2026-10-28T20:12:34Z
+- **Review State**: `COMMENTED`
+- **Comment URL**: https://github.com/aomaker-org/unplow/pull/32#pullrequestreview-5689051570
+
+### Content
+```markdown
+<!-- ccr-overview-v2 -->
+
+### 🟡 Changes recommended
+
+The change still carries unresolved findings where the test file's path header
+and footer both omit the mandatory `unplow/` workspace prefix and the footer
+uses the wrong comment style, breaking repo-wide convention.
+
+<details open>
+<summary><strong>2 open issues</strong></summary>
+
+- <picture><source media="(prefers-color-scheme: dark)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-dark.svg"><source media="(prefers-color-scheme: light)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.svg"><img
+src="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.png" alt="Low severity" width="62" height="18"
+align="texttop"></picture> [Missing unplow/ prefix in Path
+header](https://github.com/aomaker-org/unplow/pull/32#discussion_r4405576411) ·
+New
+- <picture><source media="(prefers-color-scheme: dark)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-dark.svg"><source media="(prefers-color-scheme: light)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.svg"><img
+src="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.png" alt="Low severity" width="62" height="18"
+align="texttop"></picture> [Footer uses wrong comment format and missing
+prefix](https://github.com/aomaker-org/unplow/pull/32#discussion_r4405576486) ·
+New
+</details>
+
+<details>
+<summary><strong>What changed in this PR</strong></summary>
+
+This PR tidies the `DomainGrammarEngine.build_mask_fn()` docstring so it
+accurately describes the previously-added behavior (a soft `+1.5` positive logit
+bias on legal grammar keyword tokens, rather than masking invalid transitions),
+and adds a dedicated unit-test suite for the `grammars` module — bringing it in
+line with the consistently-tested sibling modules under `src/unplow/`. It also
+regenerates the local Copilot PR tracking artifacts. It is a follow-up to prior
+Copilot review findings on the grammar-biasing logic.
+
+**Changes:**
+- Rewrites the `build_mask_fn()` docstring to describe the soft `+1.5` keyword
+bias instead of nonexistent invalid-transition masking.
+- Adds `tests/test_grammars.py` covering grammar loading, missing-
+tokenizer/unknown-domain fallbacks, empty-logits resilience, and precise `+1.5`
+keyword elevation.
+- Regenerates `copilot-pr-review.md`, `copilot-pr-comments.md`, and `copilot-pr-
+comments.json` tracking artifacts.
+
+| File | Description |
+| ---- | ----------- |
+| `src/​unplow/​grammars/​__init__.py` | Docstring now correctly states a soft
+`+1.5` positive bias on legal keyword tokens; matches implementation. |
+| `tests/​test_grammars.py` | New unit tests for the grammar engine; verified
+correct, but the `# Path:` header and footer deviate from repo conventions. |
+| `copilot-pr-review.md` | Regenerated synthesis report entry for PR #31. |
+| `copilot-pr-comments.md` | Regenerated raw comment dump (adds PR #31, drops PR
+#26). |
+| `copilot-pr-comments.json` | Regenerated structured comment data (adds PR #31,
+drops PR #26). |
+
+Note: the two comments I raised concern only the header/footer formatting of the
+new test file; the test assertions and the docstring change themselves are
+accurate against the current implementation.
+</details>
+
+<sub>Review effort: Balanced</sub>
+```
+
+---
 
 ## PR #31: fix(tools): address Copilot PR 30 findings and default extractor limit to 5
 - **URL**: https://github.com/aomaker-org/unplow/pull/31
@@ -469,262 +592,6 @@ match the ingested content, which has many unwrapped lines (up to 448 columns).
 </details>
 
 <sub>Review effort: Balanced</sub>
-```
-
----
-
-## PR #28: feat(extraction): add CFG grammar engine and logit masking hook to parameter basin probing
-- **URL**: https://github.com/aomaker-org/unplow/pull/28
-- **Type**: `inline_comment`
-- **User**: `Copilot`
-- **Created At**: 2026-10-28T18:40:06Z
-- **File**: `src/unplow/grammars/__init__.py` (Line: 37)
-- **Comment URL**: https://github.com/aomaker-org/unplow/pull/28#discussion_r4404633613
-
-### Content
-```markdown
-`build_mask_fn` unconditionally returns `None`, so the core grammar-masking
-feature introduced by this PR never actually runs. Because `mask_fn` is always
-`None`, the `grammar_mask_fn` hook added in `probe_weight_basins` is skipped,
-the loaded `self.grammars` are never consulted, and the
-`c_systems.ebnf`/`rust_systems.ebnf` definitions have no effect. The docstring
-also states this method "Creates a callable `mask_fn(input_ids, logits)` that
-masks invalid transitions to -inf", which does not match the `return None`
-behavior. Consider implementing the masking logic (or clearly marking this as a
-non-functional scaffold / NotImplemented stub) so the feature behaves as
-described.
-```
-
----
-
-## PR #28: feat(extraction): add CFG grammar engine and logit masking hook to parameter basin probing
-- **URL**: https://github.com/aomaker-org/unplow/pull/28
-- **Type**: `inline_comment`
-- **User**: `Copilot`
-- **Created At**: 2026-10-28T18:40:06Z
-- **File**: `src/unplow/incremental_pipeline.py` (Line: 275)
-- **Comment URL**: https://github.com/aomaker-org/unplow/pull/28#discussion_r4404633695
-
-### Content
-```markdown
-The PR description states the grammar engine is connected to
-`extract_and_stage_from_model()`, but no such method exists in this file — the
-integration is actually in `extract_domain_training_data()`. Please align the PR
-description with the actual method name to avoid confusion for future readers.
-```
-
----
-
-## PR #28: feat(extraction): add CFG grammar engine and logit masking hook to parameter basin probing
-- **URL**: https://github.com/aomaker-org/unplow/pull/28
-- **Type**: `review_summary`
-- **User**: `copilot-pull-request-reviewer[bot]`
-- **Created At**: 2026-10-28T18:40:06Z
-- **Review State**: `COMMENTED`
-- **Comment URL**: https://github.com/aomaker-org/unplow/pull/28#pullrequestreview-5687857101
-
-### Content
-```markdown
-<!-- ccr-overview-v2 -->
-
-### 🟡 Changes recommended
-
-A critical unresolved issue remains: `build_mask_fn` always returns `None`,
-leaving the PR's core grammar-masking feature non-functional despite its
-documented behavior.
-
-<details open>
-<summary><strong>2 open issues</strong></summary>
-
-- <picture><source media="(prefers-color-scheme: dark)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/high-v2-dark.svg"><source media="(prefers-color-scheme: light)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/high-v2-light.svg"><img
-src="https://github.githubassets.com/static/images/icons/copilot-code-
-review/high-v2-light.png" alt="High severity" width="62" height="18"
-align="texttop"></picture> [build_mask_fn is a no-op, so grammar masking never
-activates](https://github.com/aomaker-org/unplow/pull/28#discussion_r4404633613)
-· New
-- <picture><source media="(prefers-color-scheme: dark)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-dark.svg"><source media="(prefers-color-scheme: light)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-light.svg"><img
-src="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-light.png" alt="Low severity" width="62" height="18"
-align="texttop"></picture> [PR description cites the wrong extraction hook
-name](https://github.com/aomaker-org/unplow/pull/28#discussion_r4404633695) ·
-New
-</details>
-
-<details>
-<summary><strong>What changed in this PR</strong></summary>
-
-This PR scaffolds a Context-Free Grammar (CFG) constraint system for the weight-
-extraction pipeline. It introduces a new `unplow.grammars` package containing a
-`DomainGrammarEngine` plus scoped EBNF grammars for C and Rust, and wires a
-`grammar_mask_fn` hook into `WeightDecompressor.probe_weight_basins()` so logits
-can (in principle) be masked to `-inf` for illegal grammar transitions before
-temperature scaling and Top-K filtering. The engine is instantiated inside
-`extract_domain_training_data()` in the incremental pipeline.
-
-The most important caveat: `DomainGrammarEngine.build_mask_fn()` currently
-returns `None` unconditionally, so the masking hook is never actually exercised
-— the loaded grammars and `.ebnf` files have no runtime effect yet. The hook
-plumbing in `paradigm1.py` is correct and safely no-ops when `mask_fn is None`,
-so nothing breaks, but the feature is effectively a scaffold rather than the
-functional masking the description implies.
-
-**Changes:**
-- Added `unplow.grammars` package: `DomainGrammarEngine` (loads `*.ebnf` by
-domain) plus `c_systems.ebnf` and `rust_systems.ebnf`.
-- Added an optional `grammar_mask_fn(input_ids, logits)` hook to
-`probe_weight_basins()`, applied per step before temperature/Top-K.
-- Connected the engine into `extract_domain_training_data()` in
-`incremental_pipeline.py`.
-
-| File | Description |
-| ---- | ----------- |
-| `src/​unplow/​grammars/​__init__.py` | New `DomainGrammarEngine`; loads EBNF
-grammars, but `build_mask_fn` is a stub returning `None`. |
-| `src/​unplow/​grammars/​c_systems.ebnf` | New C systems-subset EBNF grammar
-(currently unused at runtime). |
-| `src/​unplow/​grammars/​rust_systems.ebnf` | New Rust systems-subset EBNF
-grammar (currently unused at runtime). |
-| `src/​unplow/​paradigm1.py` | Adds optional `grammar_mask_fn` hook applied to
-per-step logits; no-ops when `None`. |
-| `src/​unplow/​incremental_pipeline.py` | Imports and instantiates
-`DomainGrammarEngine`, passing its (currently `None`) mask fn into probing. |
-
-Key review notes recorded as comments:
-1. `build_mask_fn` always returns `None`, so the grammar-masking feature — the
-stated purpose of the PR — never runs, and its docstring overstates its
-behavior.
-2. The PR description references `extract_and_stage_from_model()`, which does
-not exist; the actual integration point is `extract_domain_training_data()`.
-</details>
-
-<sub>Review effort: Balanced</sub>
-```
-
----
-
-## PR #27: docs(inbox): ingest gemweb101 scoped systems-subset EBNF grammars for C and Rust
-- **URL**: https://github.com/aomaker-org/unplow/pull/27
-- **Type**: `review_summary`
-- **User**: `copilot-pull-request-reviewer[bot]`
-- **Created At**: 2026-10-28T18:36:27Z
-- **Review State**: `COMMENTED`
-- **Comment URL**: https://github.com/aomaker-org/unplow/pull/27#pullrequestreview-5687810241
-
-### Content
-```markdown
-<!-- ccr-overview-v2 -->
-
-### 🟡 Changes recommended
-
-Unresolved active findings remain, including a misleading comment describing
-parser behavior the code does not actually perform and an EBNF line exceeding
-the mandated column limit.
-
-<details open>
-<summary><strong>2 open issues</strong></summary>
-
-- <picture><source media="(prefers-color-scheme: dark)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-dark.svg"><source media="(prefers-color-scheme: light)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-light.svg"><img
-src="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-light.png" alt="Low severity" width="62" height="18"
-align="texttop"></picture> [Wrap overlong EBNF rule to satisfy 120-character
-limit](https://github.com/aomaker-org/unplow/pull/27#discussion_r4404596567) ·
-New
-- <picture><source media="(prefers-color-scheme: dark)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-dark.svg"><source media="(prefers-color-scheme: light)"
-srcset="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-light.svg"><img
-src="https://github.githubassets.com/static/images/icons/copilot-code-
-review/low-v2-light.png" alt="Low severity" width="62" height="18"
-align="texttop"></picture> [Comment claims initial_code is consumed but code
-never uses it](https://github.com/aomaker-
-org/unplow/pull/27#discussion_r4404596652) · New
-</details>
-
-<details>
-<summary><strong>What changed in this PR</strong></summary>
-
-This PR ingests a new reference document, `inbox/gemweb101.md`, into the
-`inbox/` staging area. The doc provides scoped "systems-subset" EBNF grammars
-for C and Rust intended to constrain autoregressive decoding (logit masking) so
-generated routines stay syntactically valid, and sketches a
-`DomainGrammarEngine` loader pattern (using `outlines`' `CFGGuide`) to be wired
-into `paradigm1.py`. It is purely additive documentation and follows the repo's
-`# Path:` header / `<!-- end of file: -->` footer convention, consistent with
-the sibling `gemweb100.md`.
-
-**Changes:**
-- Adds `c_systems.ebnf` and `rust_systems.ebnf` grammar specs covering low-level
-types, structs, pointers/borrowing, loops, bitwise logic, and lifetimes.
-- Documents a Python `DomainGrammarEngine.build_guide` loading pattern for
-grammar-constrained generation.
-- Applies the standard path header/footer and 80-column prose formatting.
-
-| File | Description |
-| ---- | ----------- |
-| inbox/​gemweb101.md | New ingested doc with C/Rust EBNF grammars and a
-`CFGGuide` loader example; one EBNF line exceeds the 120-char code limit, and
-the loader's inline comment claims `initial_code` is consumed when it is unused.
-|
-
-Notes for the author (non-blocking): the `build_guide` comment describes
-shifting across `initial_code`, but that parameter is never passed to `CFGGuide`
-(same pattern as `gemweb100.md`); and line 57 is 124 columns, over the Directive
-04 code limit. Both are flagged inline with suggested fixes.
-</details>
-
-<sub>Review effort: Balanced</sub>
-```
-
----
-
-## PR #27: docs(inbox): ingest gemweb101 scoped systems-subset EBNF grammars for C and Rust
-- **URL**: https://github.com/aomaker-org/unplow/pull/27
-- **Type**: `inline_comment`
-- **User**: `Copilot`
-- **Created At**: 2026-10-28T18:36:26Z
-- **File**: `inbox/gemweb101.md` (Line: 57)
-- **Comment URL**: https://github.com/aomaker-org/unplow/pull/27#discussion_r4404596567
-
-### Content
-```markdown
-This EBNF line is 124 columns, exceeding the 120-char limit for code mandated by
-AI.md Directive 04 (summarized in AGENTS.md). Lark rule definitions can continue
-across lines, so wrapping the alternation keeps it within the limit.
-```
-
----
-
-## PR #27: docs(inbox): ingest gemweb101 scoped systems-subset EBNF grammars for C and Rust
-- **URL**: https://github.com/aomaker-org/unplow/pull/27
-- **Type**: `inline_comment`
-- **User**: `Copilot`
-- **Created At**: 2026-10-28T18:36:26Z
-- **File**: `inbox/gemweb101.md` (Line: 218)
-- **Comment URL**: https://github.com/aomaker-org/unplow/pull/27#discussion_r4404596652
-
-### Content
-```markdown
-The comment states the parser "immediately shifts across the tokens in
-`initial_code`" to guarantee subsequent predictions complete the AST, but
-`initial_code` is never used in this method: `CFGGuide(grammar_str,
-self.tokenizer)` is constructed only from the grammar and tokenizer. As written,
-the comment describes behavior the code does not perform, which is misleading
-for readers adopting this pattern. Either reword the comment to reflect that
-`initial_code` is not yet consumed, or pre-shift the guide across `initial_code`
-as described.
 ```
 
 ---
