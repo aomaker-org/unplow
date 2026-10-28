@@ -31,8 +31,8 @@ class DomainGrammarEngine:
 
     def build_mask_fn(self, domain: str) -> Optional[Any]:
         """
-        Creates a callable `mask_fn(input_ids, logits)` that biases or masks invalid transitions
-        using domain grammar rules and structural keyword token sets.
+        Creates a callable `mask_fn(input_ids, logits)` that applies a soft positive
+        bias (+1.5) to legal domain grammar keyword tokens to encourage valid syntax.
         """
         if domain not in self.grammars or self.tokenizer is None:
             return None

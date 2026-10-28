@@ -3,7 +3,141 @@
 
 # Copilot Pull Request Review Comments & Findings
 
-Total Extracted Copilot Artifacts: 15
+Total Extracted Copilot Artifacts: 17
+
+## PR #31: fix(tools): address Copilot PR 30 findings and default extractor limit to 5
+- **URL**: https://github.com/aomaker-org/unplow/pull/31
+- **Type**: `inline_comment`
+- **User**: `Copilot`
+- **Created At**: 2026-10-28T19:47:44Z
+- **File**: `src/unplow/grammars/__init__.py` (Line: 64)
+- **Comment URL**: https://github.com/aomaker-org/unplow/pull/31#discussion_r4405338906
+
+### Content
+```markdown
+`build_mask_fn` now contains real logic (keyword extraction, token-id
+resolution, and per-step logit biasing) but the `grammars` module has no unit
+test, unlike nearly every other `src/unplow/` module (e.g. `test_circuits.py`,
+`test_conditioning.py`, `test_steering.py`). Consider adding a test that builds
+a `DomainGrammarEngine` with a small grammar and a stub tokenizer, then asserts
+the returned `mask_fn` raises the logits of the expected keyword token IDs by
+`+1.5` and leaves others unchanged.
+```
+
+---
+
+## PR #31: fix(tools): address Copilot PR 30 findings and default extractor limit to 5
+- **URL**: https://github.com/aomaker-org/unplow/pull/31
+- **Type**: `review_summary`
+- **User**: `copilot-pull-request-reviewer[bot]`
+- **Created At**: 2026-10-28T19:47:44Z
+- **Review State**: `COMMENTED`
+- **Comment URL**: https://github.com/aomaker-org/unplow/pull/31#pullrequestreview-5688753782
+
+### Content
+```markdown
+<!-- ccr-overview-v2 -->
+
+### 🟡 Changes recommended
+
+Unresolved active findings remain, including an inaccurate docstring describing
+nonexistent masking of invalid transitions and the absence of any unit test for
+the newly added grammar biasing logic.
+
+<details open>
+<summary><strong>2 open issues</strong></summary>
+
+- <picture><source media="(prefers-color-scheme: dark)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-dark.svg"><source media="(prefers-color-scheme: light)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.svg"><img
+src="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.png" alt="Low severity" width="62" height="18"
+align="texttop"></picture> [Docstring overstates masking; implementation only
+biases legal keywords](https://github.com/aomaker-
+org/unplow/pull/31#discussion_r4405338814) · New
+- <picture><source media="(prefers-color-scheme: dark)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-dark.svg"><source media="(prefers-color-scheme: light)"
+srcset="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.svg"><img
+src="https://github.githubassets.com/static/images/icons/copilot-code-
+review/low-v2-light.png" alt="Low severity" width="62" height="18"
+align="texttop"></picture> [Missing unit test for DomainGrammarEngine mask_fn
+behavior](https://github.com/aomaker-org/unplow/pull/31#discussion_r4405338906)
+· New
+</details>
+
+<details>
+<summary><strong>What changed in this PR</strong></summary>
+
+This PR applies follow-up fixes responding to Copilot's review of PR #30. Its
+two substantive code changes are (1) making
+`DomainGrammarEngine.build_mask_fn()` functional — it was previously a no-op
+that returned `None` — by extracting keywords from the domain EBNF grammar and
+applying a soft `+1.5` logit bias to the matching token IDs during weight-basin
+probing, and (2) tidying the two `tools/` extraction/synthesis scripts
+(defaulting the PR scan window to 5, removing an unused `os` import, collapsing
+over-long chained `or` conditions into `any(...)` membership checks, and
+wrapping emitted report bodies to 80 columns). The remaining two files are
+regenerated Markdown artifacts produced by those tools.
+
+**Changes:**
+- Implement grammar-keyword logit biasing in `build_mask_fn()` (no longer a no-
+op).
+- Default the extractor to the latest 5 PRs, drop the unused `os` import, and
+wrap report bodies via `textwrap`.
+- Refactor chained boolean checks into keyword-list membership tests to respect
+the 120-column code limit.
+
+| File | Description |
+| ---- | ----------- |
+| `src/​unplow/​grammars/​__init__.py` | Makes `build_mask_fn` functional
+(keyword extraction + `+1.5` bias); docstring still says it "masks invalid
+transitions" and the new logic is untested. |
+| `tools/​extract_copilot_comments.py` | Defaults `--limit`/`fetch` to 5 PRs,
+removes unused `os`, wraps body lines to 80 cols. |
+| `tools/​review_copilot_comments.py` | Replaces chained `or` conditions with
+`any(...)` keyword-list checks and wraps issue bodies to 80 cols. |
+| `copilot-pr-review.md` | Regenerated synthesis report (now ≤80 cols). |
+| `copilot-pr-comments.md` | Regenerated raw comment dump (80-col header
+dropped; URL/metadata lines still exceed 80). |
+
+I noted two items on `src/unplow/grammars/__init__.py`: a documentation wording
+inaccuracy (the docstring describes masking invalid transitions, but the code
+only positively biases legal keyword tokens) and missing unit-test coverage for
+the newly functional `build_mask_fn` logic, since sibling `src/unplow/` modules
+are consistently tested. The `os` removal is verified safe (no remaining usage),
+and the 2D `logits[:, kid]` indexing matches the shape passed by
+`probe_weight_basins`.
+</details>
+
+<sub>Review effort: Balanced</sub>
+```
+
+---
+
+## PR #31: fix(tools): address Copilot PR 30 findings and default extractor limit to 5
+- **URL**: https://github.com/aomaker-org/unplow/pull/31
+- **Type**: `inline_comment`
+- **User**: `Copilot`
+- **Created At**: 2026-10-28T19:47:43Z
+- **File**: `src/unplow/grammars/__init__.py` (Line: 35)
+- **Comment URL**: https://github.com/aomaker-org/unplow/pull/31#discussion_r4405338814
+
+### Content
+```markdown
+The docstring says the callable "biases or masks invalid transitions", but the
+implementation only adds a positive bias (`+1.5`) to the logits of tokens that
+match legal grammar keywords (`legal_keyword_ids`); it never masks or down-
+weights any invalid transition. Describing it as acting on "invalid transitions"
+is inaccurate and is especially misleading given this method's documented
+behavior was previously flagged. Reword to reflect that it applies a soft
+positive bias to legal keyword tokens.
+```
+
+---
 
 ## PR #30: fix(refactor): address Copilot review feedback on PR #20-#29
 - **URL**: https://github.com/aomaker-org/unplow/pull/30
@@ -591,68 +725,6 @@ the comment describes behavior the code does not perform, which is misleading
 for readers adopting this pattern. Either reword the comment to reflect that
 `initial_code` is not yet consumed, or pre-shift the guide across `initial_code`
 as described.
-```
-
----
-
-## PR #26: docs(inbox): ingest gemweb100 CFG logit masking in parameter basin probing
-- **URL**: https://github.com/aomaker-org/unplow/pull/26
-- **Type**: `review_summary`
-- **User**: `copilot-pull-request-reviewer[bot]`
-- **Created At**: 2026-10-28T18:31:57Z
-- **Review State**: `COMMENTED`
-- **Comment URL**: https://github.com/aomaker-org/unplow/pull/26#pullrequestreview-5687754617
-
-### Content
-```markdown
-<!-- ccr-overview-v2 -->
-
-### 🟢 Approval recommended
-
-The review surfaced no confident, objective defects or unresolved issues in this
-documentation-only reference note, leaving no blocking concerns outstanding.
-
-**No open issues** 🎉
-
-<details>
-<summary><strong>What changed in this PR</strong></summary>
-
-This PR adds a single ingested reference note, `inbox/gemweb100.md`, to the
-project's `inbox/` collection of Gemini-web-sourced design memos
-(`gemweb001`–`gemweb016`). The document describes a proposed technique for
-integrating Context-Free Grammar (CFG) logit masking into the autoregressive
-decoding loop of `WeightDecompressor.probe_weight_basins` in
-`src/unplow/paradigm1.py`, turning unconstrained generation into a constrained
-pushdown automaton (PDA) so that invalid token transitions are masked to `-∞`
-before temperature scaling and Top-K filtering. It is documentation only — no
-source code is modified in this PR; the referenced `paradigm1.py` change is
-presented as a future refactor proposal.
-
-**Changes:**
-- Adds `inbox/gemweb100.md`: a reference memo covering a token-to-grammar map
-(via `outlines`/Lark/Tree-sitter or a zero-dependency parser), a proposed
-refactor of the `probe_weight_basins` decode loop, per-language EBNF grammar
-loading, and operational benefits.
-- Follows the repository's file conventions: `# Path:` header, `<!-- end of
-file: ... -->` footer, and prose kept within 80 columns.
-
-| File | Description |
-| ---- | ----------- |
-| `inbox/​gemweb100.md` | New ingested reference note proposing CFG logit
-masking in the parameter-basin decode loop; conforms to header/footer and column
-conventions. |
-
-I reviewed the document for convention adherence (header/footer format verified
-against sibling inbox files, prose within 80 columns), internal consistency,
-spelling/grammar, and technical accuracy of the described decoding pipeline. The
-parameter differences between the memo's proposed `probe_weight_basins`
-signature and the current implementation are intentional (it is an explicit
-refactor proposal), so they are not flagged as a discrepancy. I did not find any
-confident, objective defects warranting inline comments on this reference
-material.
-</details>
-
-<sub>Review effort: Balanced</sub>
 ```
 
 ---
