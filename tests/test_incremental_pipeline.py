@@ -5,6 +5,8 @@ Validates discrete epoch increments, loss/perplexity tracking, parameter
 isolation for large backbones, and disk telemetry guardrails.
 """
 
+from pathlib import Path
+
 import pytest
 import torch
 import torch.nn as nn
@@ -211,6 +213,82 @@ def test_incremental_trainer_dynamic_model_extraction(tmp_path):
     assert len(data_iter2[0]) > 0
     # Training data must differ between iterations
     assert data_iter1[0] != data_iter2[0]
+
+
+def test_incremental_trainer_scratch_model(tmp_path):
+    from unplow.models import create_scratch_model
+    # Create 4-layer model from scratch
+    tok, scratch_model = create_scratch_model("mock", num_layers=4)
+    scratch_model._is_scratch_model = True
+    assert len(scratch_model.model.layers) == 4
+
+    # Target model for extraction
+    target_tok, target_model, _ = load_causal_lm("mock")
+
+    trainer = IncrementalTrainer(
+        model=scratch_model,
+        tokenizer=tok,
+        min_free_pct=0.01,
+        base_checkpoint_dir=str(tmp_path / "checkpoints"),
+        base_target_dir=str(tmp_path / "targets"),
+        target_model=target_model,
+    )
+
+    success = trainer.train_domain_incrementally(
+        domain_name="python",
+        iteration=1,
+        extract_from_model=True,
+        total_epochs=1,
+        steps_per_epoch=2,
+        dry_run_offload=True,
+    )
+    assert success is True
+    assert "python" in trainer.domain_reports
+    # All layers should be trainable since it's trained from scratch
+    report = trainer.domain_reports["python"]
+    assert report["trainable_params"] > 0
+    assert Path(report["checkpoint_path"]).exists()
+
+    # Verify input retention and manifest metadata
+    corpus_dir = Path("workspace/till_corpus/python")
+    raw_files = list(corpus_dir.glob("raw_input_iter*"))
+    assert len(raw_files) >= 1
+    manifest_files = list(corpus_dir.glob("input_manifest_iter*.json"))
+    assert len(manifest_files) >= 1
+
+    # Verify manifest fields
+    import json
+    meta = json.loads(manifest_files[-1].read_text(encoding="utf-8"))
+    assert "quality_score" in meta
+    assert "cyclomatic_complexity" in meta
+    assert "raw_metrics" in meta
+    assert "refactored_metrics" in meta
+    assert meta["quality_score"] > 0.0
+
+
+def test_incremental_trainer_model_comparison_on_test_prompts(tmp_path):
+    from unplow.models import create_scratch_model
+    tok, scratch_model = create_scratch_model("mock", num_layers=4)
+    target_tok, target_model, _ = load_causal_lm("mock")
+
+    trainer = IncrementalTrainer(
+        model=scratch_model,
+        tokenizer=tok,
+        target_model=target_model,
+    )
+    # Set interval to 2 steps to verify comparison triggers
+    trainer.step_eval_interval = 2
+
+    # Verify comparison method directly
+    comparisons = trainer.compare_models_on_test_prompts(
+        test_prompts=["def test():\n"],
+        max_new_tokens=4,
+    )
+    assert len(comparisons) == 1
+    assert "input_model_gen" in comparisons[0]
+    assert "dest_model_gen" in comparisons[0]
+    assert len(comparisons[0]["input_model_gen"]) > 0
+    assert len(comparisons[0]["dest_model_gen"]) > 0
 
 
 # end of file: unplow/tests/test_incremental_pipeline.py

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import textwrap
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn.functional as F
 
@@ -61,6 +61,10 @@ class ReplowEngine:
         Parses raw harvested code with Python's ast module, applies basic syntax
         sanitization, strips markdown code fences, and verifies compilability.
         """
+        """
+        Parses raw harvested code with Python's ast module, applies basic syntax
+        sanitization, strips markdown code fences, and verifies compilability.
+        """
         cleaned = raw_code.strip()
         # Remove common markdown code block wrappers if present
         if cleaned.startswith("```"):
@@ -90,6 +94,83 @@ class ReplowEngine:
                 syntax_valid = False
 
         return cleaned, syntax_valid
+
+    @staticmethod
+    def compute_code_metrics(code: str, domain: str = "python") -> Dict[str, Any]:
+        """Calculates complexity, quality, and structural metrics for extracted inputs.
+
+        Metrics provide quantitative criteria for future destination models to filter
+        or curriculum-weight training inputs.
+        """
+        lines = [line for line in code.splitlines() if line.strip()]
+        num_lines = len(lines)
+        num_chars = len(code)
+
+        words = code.split()
+        token_count = len(words)
+
+        ast_node_count = 0
+        cyclomatic_complexity = 1
+        syntax_valid = False
+
+        if domain == "python":
+            try:
+                tree = ast.parse(code)
+                syntax_valid = True
+                nodes = list(ast.walk(tree))
+                ast_node_count = len(nodes)
+                for node in nodes:
+                    if isinstance(
+                        node,
+                        (
+                            ast.If,
+                            ast.While,
+                            ast.For,
+                            ast.AsyncFor,
+                            ast.ExceptHandler,
+                            ast.With,
+                            ast.AsyncWith,
+                            ast.Assert,
+                            ast.comprehension,
+                        ),
+                    ):
+                        cyclomatic_complexity += 1
+                    elif isinstance(node, ast.BoolOp):
+                        cyclomatic_complexity += len(node.values) - 1
+            except SyntaxError:
+                syntax_valid = False
+        else:
+            syntax_valid = bool(num_lines > 0)
+            branch_keywords = {
+                "if", "else", "for", "while", "switch", "case", "match", "catch"
+            }
+            for word in words:
+                cleaned_word = word.strip("():{};,")
+                if cleaned_word in branch_keywords:
+                    cyclomatic_complexity += 1
+            ast_node_count = token_count
+
+        unique_tokens = len(set(words))
+        token_diversity = (unique_tokens / token_count) if token_count > 0 else 0.0
+
+        quality_score = 0.0
+        if syntax_valid:
+            quality_score += 0.50
+        if num_lines >= 3:
+            quality_score += 0.20
+        quality_score += min(0.30, round(token_diversity * 0.30, 4))
+        quality_score = round(min(1.0, quality_score), 4)
+
+        return {
+            "num_lines": num_lines,
+            "num_chars": num_chars,
+            "token_count": token_count,
+            "ast_node_count": ast_node_count,
+            "cyclomatic_complexity": cyclomatic_complexity,
+            "token_diversity": round(token_diversity, 4),
+            "syntax_valid": syntax_valid,
+            "quality_score": quality_score,
+        }
 
     def stage_training_dataset(
         self,

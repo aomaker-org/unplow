@@ -9,11 +9,13 @@ free disk space threshold is strictly maintained.
 
 import argparse
 import json
+import logging
 import math
 import os
 from pathlib import Path
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 # Remove script directory from sys.path to avoid shadowing standard library modules (e.g. queue)
@@ -29,8 +31,10 @@ for _p in (_repo_root, _src_dir):
 import torch
 import torch.nn.functional as F
 
+logger = logging.getLogger("unplow.incremental_pipeline")
+
 from unplow.eval import PerplexityTracker
-from unplow.models import load_causal_lm, load_local_model
+from unplow.models import create_scratch_model, load_causal_lm, load_local_model
 from unplow.paradigm1 import WeightDecompressor
 from unplow.replow import ReplowEngine
 from unplow.safety import AdditiveFileHandler
@@ -99,9 +103,11 @@ class IncrementalTrainer:
         manifest_path: Optional[str] = None,
         base_checkpoint_dir: Optional[str] = None,
         base_target_dir: Optional[str] = None,
+        target_model: Optional[Any] = None,
     ):
         self.model = model
         self.tokenizer = tokenizer
+        self.target_model = target_model
         self.guardian = TillDiskGuardian(
             manifest_path=manifest_path,
             min_free_pct=min_free_pct,
@@ -109,6 +115,139 @@ class IncrementalTrainer:
         self.base_checkpoint_dir = base_checkpoint_dir
         self.base_target_dir = base_target_dir
         self.domain_reports: Dict[str, Dict[str, Any]] = {}
+        self.global_step_count: int = 0
+        self.step_eval_interval: int = 100
+        self.heartbeat_path = Path("logs/heartbeat/unplow.json")
+        self.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        self.eval_log_path = Path("logs/evaluations/step_comparisons.jsonl")
+        self.eval_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def emit_heartbeat(
+        self,
+        domain: Optional[str] = None,
+        epoch: Optional[int] = None,
+        total_epochs: Optional[int] = None,
+        loss: Optional[float] = None,
+        ppl: Optional[float] = None,
+    ) -> None:
+        """Records process telemetry heartbeat complying with Directive 17."""
+        try:
+            import resource
+            rss_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2)
+        except Exception:
+            rss_mb = 0.0
+
+        telemetry = self.guardian.check_disk()
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "TRAINING",
+            "global_step": self.global_step_count,
+            "current_domain": domain,
+            "epoch": epoch,
+            "total_epochs": total_epochs,
+            "recent_loss": round(loss, 4) if loss is not None else None,
+            "recent_perplexity": round(ppl, 2) if ppl is not None else None,
+            "rss_mb": rss_mb,
+            "storage_free_gb": telemetry.free_gb,
+            "storage_free_pct": telemetry.free_percent,
+            "is_wsl": telemetry.is_wsl,
+            "host_free_pct": telemetry.host_free_percent,
+        }
+        tmp_hb = self.heartbeat_path.parent / f".{self.heartbeat_path.name}.tmp"
+        with open(tmp_hb, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp_hb, self.heartbeat_path)
+        print(
+            f"[IncrementalTrainer Heartbeat] Step #{self.global_step_count} | Domain: {domain or 'N/A'} "
+            f"| Loss: {payload['recent_loss']} | Free: {telemetry.free_gb} GB ({telemetry.free_percent}%)"
+        )
+
+    def compare_models_on_test_prompts(
+        self,
+        test_prompts: Optional[List[str]] = None,
+        max_new_tokens: int = 32,
+    ) -> List[Dict[str, str]]:
+        """Compares generation between target input model and destination scratch model."""
+        prompts = test_prompts or [
+            "def fibonacci(n: int) -> int:\n",
+            "#include <stdint.h>\nuint32_t compute_hash(const char *str) {\n",
+            "pub fn is_prime(n: u64) -> bool {\n",
+        ]
+        results = []
+        target_model = self.target_model if self.target_model is not None else self.model
+        device = next(self.model.parameters()).device
+        target_device = next(target_model.parameters()).device
+
+        print(
+            f"\n{'=' * 80}\n"
+            f"[IncrementalTrainer] Step #{self.global_step_count} Model Generation Comparison (Test Prompts)\n"
+            f"{'=' * 80}"
+        )
+        self.model.eval()
+        target_model.eval()
+
+        with torch.no_grad():
+            for idx, p in enumerate(prompts, 1):
+                p_short = p.strip().replace("\n", " ")
+                print(f"\n--- [Prompt #{idx}] \"{p_short}\" ---")
+
+                # 1. Target input model output
+                input_toks = self.tokenizer(p, return_tensors="pt")
+                t_ids = (
+                    input_toks.input_ids.to(target_device)
+                    if hasattr(input_toks, "input_ids")
+                    else input_toks["input_ids"].to(target_device)
+                )
+                t_out = target_model.generate(
+                    t_ids,
+                    max_new_tokens=max_new_tokens,
+                    pad_token_id=self.tokenizer.eos_token_id or 0,
+                    do_sample=False,
+                )
+                input_model_gen = self.tokenizer.decode(t_out[0], skip_special_tokens=True)
+
+                # 2. Destination scratch model output
+                d_ids = (
+                    input_toks.input_ids.to(device)
+                    if hasattr(input_toks, "input_ids")
+                    else input_toks["input_ids"].to(device)
+                )
+                d_out = self.model.generate(
+                    d_ids,
+                    max_new_tokens=max_new_tokens,
+                    pad_token_id=self.tokenizer.eos_token_id or 0,
+                    do_sample=False,
+                )
+                dest_model_gen = self.tokenizer.decode(d_out[0], skip_special_tokens=True)
+
+                print("[Input Model Generated]:")
+                for line in input_model_gen.splitlines()[:6]:
+                    print(f"  > {line}")
+
+                print("[Destination Scratch Model Generated]:")
+                for line in dest_model_gen.splitlines()[:6]:
+                    print(f"  * {line}")
+
+                results.append({
+                    "prompt": p,
+                    "input_model_gen": input_model_gen,
+                    "dest_model_gen": dest_model_gen,
+                })
+
+        # Persist test evaluation comparisons to dedicated JSONL log
+        try:
+            record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "global_step": self.global_step_count,
+                "comparisons": results,
+            }
+            with open(self.eval_log_path, "a", encoding="utf-8") as f_eval:
+                f_eval.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.warning("Failed to append test prompt comparisons to %s: %s", self.eval_log_path, e)
+
+        print(f"\n{'=' * 80}\n")
+        return results
 
     def extract_domain_training_data(
         self,
@@ -128,8 +267,9 @@ class IncrementalTrainer:
         )
         selected_seed = seeds[(iteration - 1) % len(seeds)]
 
+        extraction_source = self.target_model if self.target_model is not None else self.model
         try:
-            decompressor = WeightDecompressor(model=self.model, tokenizer=self.tokenizer)
+            decompressor = WeightDecompressor(model=extraction_source, tokenizer=self.tokenizer)
             records = decompressor.probe_weight_basins(
                 num_samples=num_samples,
                 seq_len=seq_len,
@@ -158,14 +298,51 @@ class IncrementalTrainer:
         if not clean_code.strip():
             clean_code = selected_seed
 
-        # Additively persist the extracted, reviewed & refactored training sample
+        # Compute complexity and quality metrics for raw and refactored code
+        raw_metrics = ReplowEngine.compute_code_metrics(raw_text, domain=domain_name)
+        refactored_metrics = ReplowEngine.compute_code_metrics(clean_code, domain=domain_name)
+
+        # Additively persist the raw input, refactored sample, and input manifest
         ext = DOMAIN_EXTENSIONS.get(domain_name, "txt")
         corpus_dir = Path(f"workspace/till_corpus/{domain_name}")
         corpus_dir.mkdir(parents=True, exist_ok=True)
         file_handler = AdditiveFileHandler()
+
+        # 1. Retain raw harvested input before refactoring
+        raw_target_file = corpus_dir / f"raw_input_iter{iteration:03d}.{ext}"
+        safe_raw_file = file_handler.get_next_revision_path(raw_target_file)
+        safe_raw_file.write_text(raw_text, encoding="utf-8")
+
+        # 2. Persist refactored training sample
         target_file = corpus_dir / f"extracted_iter{iteration:03d}.{ext}"
         safe_file = file_handler.get_next_revision_path(target_file)
         safe_file.write_text(clean_code, encoding="utf-8")
+
+        # 3. Create input manifest metadata tracking quality, complexity, and provenance
+        manifest_meta = {
+            "iteration": iteration,
+            "domain": domain_name,
+            "seed_prompt": selected_seed,
+            "timestamp": time.time(),
+            "raw_input_path": str(safe_raw_file),
+            "refactored_path": str(safe_file),
+            "raw_metrics": raw_metrics,
+            "refactored_metrics": refactored_metrics,
+            "quality_score": refactored_metrics["quality_score"],
+            "cyclomatic_complexity": refactored_metrics["cyclomatic_complexity"],
+            "ast_node_count": refactored_metrics["ast_node_count"],
+            "token_diversity": refactored_metrics["token_diversity"],
+            "syntax_valid": refactored_metrics["syntax_valid"],
+        }
+        manifest_target = corpus_dir / f"input_manifest_iter{iteration:03d}.json"
+        safe_manifest_file = file_handler.get_next_revision_path(manifest_target)
+        safe_manifest_file.write_text(json.dumps(manifest_meta, indent=2), encoding="utf-8")
+
+        # Append to unified corpus metadata manifest for downstream filtering
+        unified_manifest_path = Path("workspace/till_corpus/corpus_manifest.jsonl")
+        unified_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(unified_manifest_path, "a", encoding="utf-8") as f_manifest:
+            f_manifest.write(json.dumps(manifest_meta) + "\n")
 
         seed_preview = (
             selected_seed.splitlines()[0] if selected_seed.splitlines() else selected_seed
@@ -175,7 +352,14 @@ class IncrementalTrainer:
             f"(Iteration #{iteration}):"
         )
         print(f"  Source Seed: {seed_preview}")
+        print(f"  Raw Input  : {safe_raw_file}")
         print(f"  Staged Path: {safe_file}")
+        print(
+            f"  Quality    : {refactored_metrics['quality_score']:.2f} | "
+            f"Complexity (CC): {refactored_metrics['cyclomatic_complexity']} | "
+            f"Tokens: {refactored_metrics['token_count']} | "
+            f"Valid: {refactored_metrics['syntax_valid']}"
+        )
         return [clean_code]
 
     def train_domain_incrementally(
@@ -196,6 +380,24 @@ class IncrementalTrainer:
         """
         if extract_from_model is None:
             extract_from_model = corpus_texts is None
+
+        # Re-use previously extracted training data if already staged for this iteration/seed
+        if (extract_from_model or not corpus_texts) and corpus_texts is None:
+            corpus_dir = Path(f"workspace/till_corpus/{domain_name}")
+            ext = DOMAIN_EXTENSIONS.get(domain_name, "txt")
+            existing_candidates = sorted(corpus_dir.glob(f"extracted_iter{iteration:03d}*.{ext}")) if corpus_dir.exists() else []
+            if existing_candidates:
+                try:
+                    reused_text = existing_candidates[-1].read_text(encoding="utf-8")
+                    if reused_text.strip():
+                        print(
+                            f"[IncrementalTrainer] Re-using previously extracted training data for "
+                            f"till-{domain_name} (Iteration #{iteration}):\n"
+                            f"  Re-used Path: {existing_candidates[-1]}"
+                        )
+                        corpus_texts = [reused_text]
+                except Exception:
+                    corpus_texts = None
 
         if extract_from_model or not corpus_texts:
             corpus_texts = self.extract_domain_training_data(
@@ -220,8 +422,10 @@ class IncrementalTrainer:
         tracker = PerplexityTracker(self.model, self.tokenizer)
 
         # Apply parameter isolation guard for large models (> 10M params) on CPU
+        # when not explicitly marked as scratch model training
         total_params = sum(p.numel() for p in self.model.parameters())
-        if total_params > 10_000_000:
+        is_scratch = getattr(self.model, "_is_scratch_model", False)
+        if total_params > 10_000_000 and not is_scratch:
             for p in self.model.parameters():
                 p.requires_grad = False
             unfrozen = False
@@ -284,6 +488,14 @@ class IncrementalTrainer:
                     optimizer.step()
                     epoch_loss += float(loss.item())
                     step_count += 1
+                    self.global_step_count += 1
+
+                    # Trigger periodic test prompt comparison every step_eval_interval steps
+                    if (
+                        self.step_eval_interval > 0
+                        and self.global_step_count % self.step_eval_interval == 0
+                    ):
+                        self.compare_models_on_test_prompts()
 
             elapsed = time.perf_counter() - start_time
             self.model.eval()
@@ -302,6 +514,13 @@ class IncrementalTrainer:
                 f"[IncrementalTrainer] [till-{domain_name}] Epoch {epoch}/{total_epochs} "
                 f"completed in {elapsed:.2f}s | Step Loss: {avg_step_loss:.4f} | "
                 f"Corpus Loss: {loss_val:.4f} | PPL: {ppl_val:.2f}"
+            )
+            self.emit_heartbeat(
+                domain=domain_name,
+                epoch=epoch,
+                total_epochs=total_epochs,
+                loss=avg_step_loss,
+                ppl=ppl_val,
             )
 
             # Enforce disk space constraint (>= 15% free partition space)
@@ -506,7 +725,62 @@ def main() -> None:
         "--min-free-pct",
         type=float,
         default=float(os.environ.get("MIN_FREE_PCT", "15.0")),
-        help="Minimum free disk space percentage floor (default: 15.0%)",
+        help="Minimum free disk space percentage floor (default: 15.0%%)",
+    )
+    parser.add_argument(
+        "--min-quality-score",
+        type=float,
+        default=float(os.environ.get("MIN_QUALITY_SCORE", "0.0")),
+        help="Filter training inputs by minimum quality score threshold (default: 0.0)",
+    )
+    parser.add_argument(
+        "--min-complexity",
+        type=int,
+        default=int(os.environ.get("MIN_COMPLEXITY", "1")),
+        help="Filter training inputs by minimum cyclomatic complexity (default: 1)",
+    )
+    parser.add_argument(
+        "--train-scratch",
+        action="store_true",
+        default=True,
+        help="Train a new model initialized from scratch instead of fine-tuning layer 27 (default: True)",
+    )
+    parser.add_argument(
+        "--scratch-layers",
+        type=int,
+        default=int(os.environ.get("SCRATCH_LAYERS", "4")),
+        choices=[4, 6],
+        help="Number of layers for scratch model: 4 or 6 (default: 4)",
+    )
+    parser.add_argument(
+        "--no-scratch",
+        dest="train_scratch",
+        action="store_false",
+        help="Retrain / fine-tune backbone model instead of training from scratch",
+    )
+    parser.add_argument(
+        "--step-eval-interval",
+        type=int,
+        default=int(os.environ.get("STEP_EVAL_INTERVAL", "100")),
+        help="Compare input vs destination model on test prompts every N training steps (default: 100)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=True,
+        help="Auto-resume model weights from the latest saved checkpoint if present (default: True)",
+    )
+    parser.add_argument(
+        "--checkpoint-file",
+        type=str,
+        default=None,
+        help="Explicit path to model checkpoint (.pt) to load",
+    )
+    parser.add_argument(
+        "--no-resume",
+        dest="resume",
+        action="store_false",
+        help="Do not resume; force initializing completely from fresh scratch weights",
     )
     parser.add_argument(
         "--extract-from-model",
@@ -523,14 +797,57 @@ def main() -> None:
     args = parser.parse_args()
 
     print(f"[*] Loading model substrate '{args.model}' for incremental training...")
-    tokenizer, model, _ = load_causal_lm(model_identifier=args.model)
+    target_tok, target_model, target_path = load_causal_lm(model_identifier=args.model)
+
+    if args.train_scratch:
+        print(f"[*] Initializing new {args.scratch_layers}-layer model from scratch based on '{args.model}'...")
+        tokenizer, train_model = create_scratch_model(
+            model_identifier=target_path,
+            num_layers=args.scratch_layers,
+        )
+        train_model._is_scratch_model = True
+        extraction_model = target_model
+
+        # Check for latest existing checkpoint to resume
+        resumed_path = None
+        if args.checkpoint_file and Path(args.checkpoint_file).exists():
+            resumed_path = Path(args.checkpoint_file)
+        elif args.resume:
+            # Find latest 4-layer / scratch checkpoint across till-* directories
+            candidate_checkpoints = []
+            for d in Path("models").glob("till-*-lora"):
+                for cp in d.glob("adapter_model_rev*.pt"):
+                    try:
+                        # Only match large full-weights checkpoints (> 100MB)
+                        if cp.stat().st_size > 100_000_000:
+                            candidate_checkpoints.append((cp.stat().st_mtime, cp))
+                    except Exception:
+                        pass
+            if candidate_checkpoints:
+                candidate_checkpoints.sort(key=lambda x: x[0])
+                resumed_path = candidate_checkpoints[-1][1]
+
+        if resumed_path:
+            try:
+                print(f"[*] Resuming destination model weights from latest checkpoint: {resumed_path}")
+                state = torch.load(resumed_path, map_location="cpu", weights_only=True)
+                missing, unexpected = train_model.load_state_dict(state, strict=False)
+                print(f"[+] Successfully resumed weights (Missing: {len(missing)}, Unexpected: {len(unexpected)})")
+            except Exception as e:
+                print(f"[!] Warning: Failed to load checkpoint {resumed_path}: {e}")
+    else:
+        tokenizer = target_tok
+        train_model = target_model
+        extraction_model = None
 
     trainer = IncrementalTrainer(
-        model=model,
+        model=train_model,
         tokenizer=tokenizer,
         manifest_path=args.manifest,
         min_free_pct=args.min_free_pct,
+        target_model=extraction_model,
     )
+    trainer.step_eval_interval = args.step_eval_interval
 
     domains = args.domains or list(TILL_DOMAINS.keys())
     iteration = 0
@@ -545,11 +862,24 @@ def main() -> None:
         for domain in domains:
             corpus_texts = None
             if not args.extract_from_model:
-                # Load corpus texts from staged directory if model extraction is disabled
+                # Load corpus texts from staged directory and filter by manifest metadata if present
                 corpus_dir = Path(f"workspace/till_corpus/{domain}")
                 corpus_texts = []
-                if corpus_dir.exists():
-                    for f in sorted(corpus_dir.glob("*")):
+                manifest_files = sorted(corpus_dir.glob("input_manifest_iter*.json")) if corpus_dir.exists() else []
+                if manifest_files:
+                    for mf in manifest_files:
+                        try:
+                            meta = json.loads(mf.read_text(encoding="utf-8"))
+                            q = meta.get("quality_score", 1.0)
+                            cc = meta.get("cyclomatic_complexity", 1)
+                            if q >= args.min_quality_score and cc >= args.min_complexity:
+                                ref_path = Path(meta.get("refactored_path", ""))
+                                if ref_path.exists():
+                                    corpus_texts.append(ref_path.read_text(encoding="utf-8"))
+                        except Exception:
+                            pass
+                elif corpus_dir.exists():
+                    for f in sorted(corpus_dir.glob("extracted_iter*")):
                         if f.is_file():
                             try:
                                 corpus_texts.append(f.read_text(encoding="utf-8"))

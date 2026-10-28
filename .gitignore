@@ -55,6 +55,7 @@ coverage.xml
 logs/forensics/*.log
 logs/forensics/*.jsonl
 logs/heartbeat/*.json
+logs/evaluations/*.jsonl
 logs/unplow/*.log
 logs/tasks/
 /records/queue/*/*.json
@@ -70,6 +71,7 @@ logs/tasks/
 /models/cache/
 /models/outputs/
 /models/qwen2.5-1.5b-instruct
+/models/qwen2.5-coder-0.5b/
 /models/till-*/
 /workspace/till_corpus/
 *.gguf
