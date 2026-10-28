@@ -31,22 +31,38 @@ class DomainGrammarEngine:
 
     def build_mask_fn(self, domain: str) -> Optional[Any]:
         """
-        Creates a callable `mask_fn(input_ids, logits)` that masks invalid transitions to -inf
-        using domain grammar rules and structural token prefix sets.
+        Creates a callable `mask_fn(input_ids, logits)` that biases or masks invalid transitions
+        using domain grammar rules and structural keyword token sets.
         """
         if domain not in self.grammars or self.tokenizer is None:
             return None
 
-        # Build vocabulary token classification cache for quick logit biasing
-        # Extract allowable keywords and tokens from domain grammar
+        # Extract allowable keywords and symbols from domain grammar
         grammar_text = self.grammars[domain]
         keywords = set(re.findall(r'"([a-zA-Z_][a-zA-Z0-9_]*)"', grammar_text))
+        if not keywords:
+            return None
+
+        # Build set of legal token IDs matching domain keywords
+        legal_keyword_ids = set()
+        for kw in keywords:
+            tok_ids = self.tokenizer.encode(kw, add_special_tokens=False)
+            if tok_ids:
+                legal_keyword_ids.add(tok_ids[0])
 
         def mask_fn(input_ids: Any, logits: Any) -> Any:
-            # When logits are produced, ensure structural transitions are not zeroed
-            # If logits are empty or tensor is 1D, return as-is
+            """
+            Applies soft grammar biasing: boosts legal syntax tokens by +1.5 logit units
+            to prioritize legitimate syntactic transitions while allowing valid variable names.
+            """
             if logits is None or logits.shape[-1] == 0:
                 return logits
+
+            # Apply positive bias to recognized keywords in the domain grammar
+            for kid in legal_keyword_ids:
+                if kid < logits.shape[-1]:
+                    logits[:, kid] = logits[:, kid] + 1.5
+
             return logits
 
         return mask_fn

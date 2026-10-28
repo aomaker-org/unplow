@@ -4,6 +4,7 @@
 # Max Line Length: 120 Chars
 
 import json
+import textwrap
 from collections import defaultdict
 from typing import Any, Dict, List
 
@@ -23,16 +24,22 @@ def categorize_comments(comments: List[Dict[str, Any]]) -> Dict[str, List[Dict[s
         body = c.get("body", "").lower()
         path = c.get("path", "")
 
-        # Categorization logic
-        if "column" in body or "80 cols" in body or "120-char" in body or "max column" in body:
+        # Categorization logic using membership checks to respect 120-col code limits
+        fmt_keys = ["column", "80 cols", "120-char", "max column"]
+        sec_keys = ["security", "unauthenticated", "path traversal", "arbitrary code", "pickle"]
+        dead_keys = ["never used", "unused import", "unreachable", "no-op", "returns none"]
+        disc_keys = ["does not match", "misleading", "inaccurate", "diverges"]
+        perf_keys = ["leak", "eval mode", "socket", "re-load", "restore"]
+
+        if any(k in body for k in fmt_keys):
             categories["Formatting & Column Limits (Directive 04)"].append(c)
-        elif "security" in body or "unauthenticated" in body or "path traversal" in body or "arbitrary code" in body or "pickle" in body:
+        elif any(k in body for k in sec_keys):
             categories["Security, Path Traversal & Isolation"].append(c)
-        elif "never used" in body or "unused import" in body or "unreachable" in body or "no-op" in body or "returns none" in body:
+        elif any(k in body for k in dead_keys):
             categories["Dead Code, Unused Imports & Stubs"].append(c)
-        elif "does not match" in body or "misleading" in body or "inaccurate" in body or "diverges" in body:
+        elif any(k in body for k in disc_keys):
             categories["Documentation & Implementation Discrepancies"].append(c)
-        elif "leak" in body or "eval mode" in body or "socket" in body or "re-load" in body or "restore" in body:
+        elif any(k in body for k in perf_keys):
             categories["Resource Management, State Leaks & Performance"].append(c)
         elif "test" in body or "fixture" in body:
             categories["Test Coverage & Fragility"].append(c)
@@ -45,7 +52,7 @@ def categorize_comments(comments: List[Dict[str, Any]]) -> Dict[str, List[Dict[s
 def generate_review_report(categories: Dict[str, List[Dict[str, Any]]], output_path: str = "copilot-pr-review.md"):
     lines: List[str] = [
         "# Path: copilot-pr-review.md",
-        "# copilot-pr-review.md - Comprehensive Review and Actionable Refactoring Plan from Copilot Feedback",
+        "# copilot-pr-review.md - Refactoring Plan from Copilot PR Feedback",
         "# Max Column: 80 Columns",
         "",
         "# Copilot Pull Request Review & Refactoring Synthesis",
@@ -68,9 +75,11 @@ def generate_review_report(categories: Dict[str, List[Dict[str, Any]]], output_p
             pr_num = item["pr_number"]
             path = item.get("path", "N/A")
             line = item.get("line", "N/A")
-            body = item.get("body", "").replace("\n", " ")
+            body = item.get("body", "").replace("\n", " ").strip()
             lines.append(f"### [PR #{pr_num}] `{path}` (Line {line})")
-            lines.append(f"- **Issue**: {body[:300]}..." if len(body) > 300 else f"- **Issue**: {body}")
+            issue_raw = f"- **Issue**: {body[:300]}..." if len(body) > 300 else f"- **Issue**: {body}"
+            wrapped_issue = textwrap.wrap(issue_raw, width=80, subsequent_indent="  ")
+            lines.extend(wrapped_issue)
             lines.append("")
 
     lines.append("<!-- end of file: copilot-pr-review.md -->\n")
