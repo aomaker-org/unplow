@@ -2,18 +2,25 @@
 # Direct Preference Optimization (DPO) Triplet Generation
 # Max Column: 80 Columns
 
-To format your data for Direct Preference Optimization (DPO), each training instance must consist of a triplet: `(prompt, chosen, rejected)`.
+To format your data for Direct Preference Optimization (DPO), each training
+instance must consist of a triplet: `(prompt, chosen, rejected)`.
 
 In systems code generation, a clear signal hierarchy exists:
 
-1. **`chosen` (Positive):** Must strictly pass both `gcc` compilation and 100% of the Unity test harness assertions.
-2. **`rejected` (Negative):** A candidate that **failed either compilation or runtime assertions**, but is **not empty or trivial noise**. (Prioritizing runtime/assertion failures over syntax errors provides a stronger gradient for code generation, as the student learns semantic correctness rather than basic token validity).
+1. **`chosen` (Positive):** Must strictly pass both `gcc` compilation and 100%
+of the Unity test harness assertions.
+2. **`rejected` (Negative):** A candidate that **failed either compilation or
+runtime assertions**, but is **not empty or trivial noise**. (Prioritizing
+runtime/assertion failures over syntax errors provides a stronger gradient for
+code generation, as the student learns semantic correctness rather than basic
+token validity).
 
 ---
 
 ### 1. Updated Execution Return Payload
 
-Modify `_run_unity_test_sync` so it returns the sanitized code alongside the error category (`compile_error`, `runtime_error`, or `pass`):
+Modify `_run_unity_test_sync` so it returns the sanitized code alongside the
+error category (`compile_error`, `runtime_error`, or `pass`):
 
 ```python
 def _run_unity_test_sync(
@@ -90,7 +97,9 @@ def _run_unity_test_sync(
 
 ### 2. Refactored `process_task` for DPO Pair Assembly
 
-Instead of returning immediately on the first pass or failure, generate candidates across attempts to locate **both** a valid solution (`chosen`) and a high-signal invalid attempt (`rejected`).
+Instead of returning immediately on the first pass or failure, generate
+candidates across attempts to locate **both** a valid solution (`chosen`) and a
+high-signal invalid attempt (`rejected`).
 
 ```python
 async def process_task_dpo(
@@ -165,7 +174,8 @@ async def process_task_dpo(
 
 ### 3. Output Schema for DPO Training (Hugging Face / TRL Compatible)
 
-The records saved to `dpo_manifest.json` map directly to standard DPO trainers (such as Hugging Face TRL’s `DPOTrainer`):
+The records saved to `dpo_manifest.json` map directly to standard DPO trainers
+(such as Hugging Face TRL’s `DPOTrainer`):
 
 ```json
 [
@@ -186,7 +196,8 @@ The records saved to `dpo_manifest.json` map directly to standard DPO trainers (
 
 ### 4. Direct DPO Training Script Using TRL
 
-Train your compact destination model on these pairs using this lightweight fine-tuning script:
+Train your compact destination model on these pairs using this lightweight fine-
+tuning script:
 
 ```python
 import torch

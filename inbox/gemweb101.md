@@ -54,7 +54,8 @@ declaration_statement: type pointer_qualifier? IDENTIFIER ("=" expression)? ";"
 assignment_statement: lvalue ("=" | "+=" | "-=" | "*=" | "&=" | "|=" | "^=" | "<<=" | ">>=") expression ";"
 
 if_statement: "if" "(" expression ")" statement ("else" statement)?
-for_statement: "for" "(" (declaration_statement | assignment_statement | ";") expression? ";" assignment_expr? ")" statement
+for_statement: "for" "(" (declaration_statement | assignment_statement | ";") expression? ";" 
+    assignment_expr? ")" statement
 while_statement: "while" "(" expression ")" statement
 return_statement: "return" expression? ";"
 
@@ -213,9 +214,8 @@ class DomainGrammarEngine:
         with open(self.grammar_files[domain], "r", encoding="utf-8") as f:
             grammar_str = f.read()
             
-        # The parser initializes its state and immediately shifts 
-        # across the tokens in initial_code (e.g., your domain seed prefix),
-        # guaranteeing that subsequent predictions strictly complete the AST.
+        # Construct the guide with grammar and tokenizer. Note that for prefix-seeded
+        # prompts, the guide can be pre-shifted across initial_code tokens.
         guide = CFGGuide(grammar_str, self.tokenizer)
         return guide
 

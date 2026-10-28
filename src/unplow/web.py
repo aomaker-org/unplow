@@ -54,12 +54,11 @@ def get_lan_ip_addresses() -> List[str]:
     """Identifies primary local network IP addresses for remote browser access."""
     ips = []
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("10.255.255.255", 1))
-        primary_ip = s.getsockname()[0]
-        s.close()
-        if primary_ip and not primary_ip.startswith("127.") and primary_ip != "0.0.0.0":
-            ips.append(primary_ip)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            primary_ip = s.getsockname()[0]
+            if primary_ip and not primary_ip.startswith("127.") and primary_ip != "0.0.0.0":
+                ips.append(primary_ip)
     except Exception:
         pass
     try:
@@ -1463,9 +1462,13 @@ class UnplowWebHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/timelapse/frames":
             query = urllib.parse.parse_qs(parsed.query)
             filename = query.get("filename", [None])[0]
-            out_dir = Path("workspace/visualizations")
+            out_dir = Path("workspace/visualizations").resolve()
             if filename:
-                target_p = out_dir / filename
+                safe_name = Path(filename).name
+                target_p = (out_dir / safe_name).resolve()
+                if not str(target_p).startswith(str(out_dir)):
+                    self.send_json({"status": "error", "error": "Invalid file path traversal"}, 400)
+                    return
             else:
                 domain = query.get("domain", ["python"])[0].replace("till-", "")
                 mode = query.get("mode", ["delta"])[0]

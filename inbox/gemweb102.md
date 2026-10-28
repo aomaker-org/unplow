@@ -2,7 +2,12 @@
 # Prompt-Driven Execution Distillation Pipeline
 # Max Column: 80 Columns
 
-Transitioning from unconstrained weight decompressing to **prompt-driven execution distillation** closes the loop on functional correctness. Instead of sampling arbitrary routines from the source model's weights and checking syntax post-hoc, you prompt the source (input/teacher) model with concrete programming tasks, evaluate its output against unit tests or AST verifiers, and supervise the destination (student) model on the verified solutions.
+Transitioning from unconstrained weight decompressing to **prompt-driven
+execution distillation** closes the loop on functional correctness. Instead of
+sampling arbitrary routines from the source model's weights and checking syntax
+post-hoc, you prompt the source (input/teacher) model with concrete programming
+tasks, evaluate its output against unit tests or AST verifiers, and supervise
+the destination (student) model on the verified solutions.
 
 ```
 +--------------------------------------------------------------------------+
@@ -28,7 +33,9 @@ Transitioning from unconstrained weight decompressing to **prompt-driven executi
 
 ### 1. Generating & Structuring the Problem Bank
 
-To train a compact destination model effectively, your problem inputs need consistent structural boundaries so the model learns deterministic formatting, reasoning, and implementation phases.
+To train a compact destination model effectively, your problem inputs need
+consistent structural boundaries so the model learns deterministic formatting,
+reasoning, and implementation phases.
 
 A minimal schema for problem definitions:
 
@@ -46,7 +53,9 @@ A minimal schema for problem definitions:
 
 ### 2. Teacher Harvesting Script with Execution Filtering
 
-Using execution feedback (via compilation and unit testing) ensures that 100% of the training tokens given to the destination model represent working systems code.
+Using execution feedback (via compilation and unit testing) ensures that 100% of
+the training tokens given to the destination model represent working systems
+code.
 
 ```python
 import subprocess
@@ -138,7 +147,9 @@ def harvest_problem_solutions(
 
 ### 3. Training the Destination Model
 
-With verified task-solution pairs, you train the destination model using standard **Causal LM Cross-Entropy with Target-Only Masking** (masking prompt tokens so the student only incurs loss on predicting the solution):
+With verified task-solution pairs, you train the destination model using
+standard **Causal LM Cross-Entropy with Target-Only Masking** (masking prompt
+tokens so the student only incurs loss on predicting the solution):
 
 ```python
 import torch
@@ -205,13 +216,17 @@ def train_student_epoch(student_model, dataloader, optimizer, device):
 
 ### 4. Direct Preference Optimization (DPO) Bonus
 
-Because you test the input model's attempts with an execution harness, you will often obtain **both passed and failed outputs** for the exact same prompt.
+Because you test the input model's attempts with an execution harness, you will
+often obtain **both passed and failed outputs** for the exact same prompt.
 
 Instead of discarding the failures, pair them into a preference dataset:
 
 * `chosen`: Output passing the unit test.
 * `rejected`: Output that failed compilation or assertion.
 
-Feeding these pairs into a **DPO (Direct Preference Optimization)** loss function during a secondary fine-tuning phase sharply suppresses common failure modes (such as off-by-one pointer errors or unhandled buffer bounds) in the minimized destination model.
+Feeding these pairs into a **DPO (Direct Preference Optimization)** loss
+function during a secondary fine-tuning phase sharply suppresses common failure
+modes (such as off-by-one pointer errors or unhandled buffer bounds) in the
+minimized destination model.
 
 <!-- end of file: unplow/inbox/gemweb102.md -->

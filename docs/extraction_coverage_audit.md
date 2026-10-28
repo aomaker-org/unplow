@@ -58,25 +58,31 @@ anchors defined in `DOMAIN_EXTRACTION_SEEDS`:
 ### 3.2 C (91 samples)
 - `#include <stdint.h>\nuint32_t compute_crc(...)` — 24 samples (26.4%)
 - `#include <stddef.h>\nint verify_block_header(...)` — 21 samples (23.1%)
-- `typedef struct { uint32_t id; uint64_t offset; } unp_chunk_t;` — 19 samples (20.9%)
+- `typedef struct { uint32_t id; uint64_t offset; } unp_chunk_t;` — 19 samples
+  (20.9%)
 - `static int decode_payload(...)` — 16 samples (17.6%)
 - `#include <stdbool.h>\nbool is_aligned(...)` — 11 samples (12.1%)
 
 ### 3.3 C++ (85 samples)
 - `template <typename T>` — 28 samples (32.9%)
-- `#pragma once\ntemplate <typename T, std::size_t Cap> class FastRingBuffer` — 21 samples (24.7%)
-- `#include <vector>\nnamespace unp { class ManifoldDecompressor` — 20 samples (23.5%)
+- `#pragma once\ntemplate <typename T, std::size_t Cap> class FastRingBuffer` —
+  21 samples (24.7%)
+- `#include <vector>\nnamespace unp { class ManifoldDecompressor` — 20 samples
+  (23.5%)
 - `class StaticMemoryArena { ... };` — 16 samples (18.8%)
 
 ### 3.4 Rust (83 samples)
-- `pub fn verify_signature(data: &[u8], sig: &[u8]) -> bool` — 21 samples (25.3%)
+- `pub fn verify_signature(data: &[u8], sig: &[u8]) -> bool` — 21 samples
+  (25.3%)
 - `pub struct BoundedBuffer<T>` — 19 samples (22.9%)
 - `use std::alloc::{alloc, Layout};` — 17 samples (20.5%)
 - `impl Drop for BoundedBuffer` — 16 samples (19.3%)
-- `pub fn decode_varint(slice: &[u8]) -> Result<(u64, usize), ...>` — 10 samples (12.0%)
+- `pub fn decode_varint(slice: &[u8]) -> Result<(u64, usize), ...>` — 10 samples
+  (12.0%)
 
 ### 3.5 Gencode / Polyglot JSON (80 samples)
-- Structured AST / Translation schemas: `{\n  "translation": ...` — 80 samples (100.0%)
+- Structured AST / Translation schemas: `{\n  "translation": ...` — 80 samples
+  (100.0%)
 
 ---
 
@@ -90,13 +96,16 @@ anchors defined in `DOMAIN_EXTRACTION_SEEDS`:
      (100.0% refactored validity).
 2. **Complexity Metric Analysis**:
    - Systems code (C, C++, Rust) exhibited higher average cyclomatic
-     complexity ($1.52 - 1.67$) and richer token density ($25 - 26$ tokens/block)
+     complexity ($1.52 - 1.67$) and richer token density ($25 - 26$
+tokens/block)
      than Python ($1.04$ CC) or Gencode schema JSON ($1.05$ CC).
 3. **Artifact Retention**:
    - Staged inputs are permanently retained on disk:
      - 454 raw files (`workspace/till_corpus/{domain}/raw_input_iter*.ext`)
-     - 474 refactored files (`workspace/till_corpus/{domain}/extracted_iter*.ext`)
-     - 454 individual manifest records (`workspace/till_corpus/{domain}/input_manifest_iter*.json`)
+     - 474 refactored files
+       (`workspace/till_corpus/{domain}/extracted_iter*.ext`)
+     - 454 individual manifest records
+       (`workspace/till_corpus/{domain}/input_manifest_iter*.json`)
 
 ---
 

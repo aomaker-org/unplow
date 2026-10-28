@@ -2,14 +2,18 @@
 # Exercism C Track Extraction Harness Specification
 # Max Column: 80 Columns
 
-Exercism's C track repository structure stores exercises under `exercises/practice/<slug>/` (or `exercises/concept/<slug>/`). Each exercise contains:
+Exercism's C track repository structure stores exercises under
+`exercises/practice/<slug>/` (or `exercises/concept/<slug>/`). Each exercise
+contains:
 
 * `.docs/instructions.md`: The problem specification and requirements.
 * `<slug>.h`: Function declarations and type signatures.
 * `test_<slug>.c`: Unity-based test harness invoking the functions.
 * `vendor/unity.h` and `vendor/unity.c`: The lightweight C unit test framework.
 
-The script below clones or walks a local clone of `exercism/c`, parses the instructions, captures the function prototypes from the header file, and bundles the Unity test code into a standalone JSON problem manifest.
+The script below clones or walks a local clone of `exercism/c`, parses the
+instructions, captures the function prototypes from the header file, and bundles
+the Unity test code into a standalone JSON problem manifest.
 
 ```python
 #!/usr/bin/env python3
@@ -193,7 +197,9 @@ if __name__ == "__main__":
 
 ### Integration into the Execution Test Runner
 
-Because Exercism C tests use the Unity framework, compile each generated solution in a sandbox directory containing the cached `unity.c` and header stubs:
+Because Exercism C tests use the Unity framework, compile each generated
+solution in a sandbox directory containing the cached `unity.c` and header
+stubs:
 
 ```python
 def compile_and_run_unity_test(task_dict: dict, generated_c_code: str) -> bool:

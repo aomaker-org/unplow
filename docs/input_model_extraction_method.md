@@ -129,9 +129,9 @@ appended to `corpus_manifest.jsonl`:
 - **AST Node Count**: Total syntactic constructs present in the parsed tree.
 - **Token Diversity Ratio**: $\frac{|\text{Unique Tokens}|}{|\text{Total Tokens}|}$.
 - **Quality Score ($Q$)**:
-  Composite metric weighting token diversity, syntax validity, and node density:
+  Composite metric computed by `compute_code_metrics()` in `src/unplow/replow.py`:
 
-$$Q = 0.5 \cdot \text{syntax\_valid} + 0.3 \cdot \text{token\_diversity} + 0.2 \cdot \min\left(1.0, \frac{\text{ast\_nodes}}{20}\right)$$
+$$Q = 0.50 \cdot [\text{syntax\_valid}] + 0.20 \cdot [\text{num\_lines} \ge 3] + \min(0.30, 0.30 \cdot \text{token\_diversity})$$
 
 ---
 
