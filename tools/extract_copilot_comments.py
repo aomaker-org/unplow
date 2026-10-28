@@ -5,9 +5,9 @@
 
 import argparse
 import json
-import os
 import subprocess
 import sys
+import textwrap
 from typing import Any, Dict, List
 
 
@@ -16,8 +16,15 @@ def run_gh_json(cmd: List[str]) -> Any:
     return json.loads(res.stdout)
 
 
-def fetch_copilot_comments(repo: str = "aomaker-org/unplow", limit: int = 50) -> List[Dict[str, Any]]:
-    prs = run_gh_json(["gh", "pr", "list", "--repo", repo, "--state", "all", "--limit", str(limit), "--json", "number,title,state,url"])
+def fetch_copilot_comments(repo: str = "aomaker-org/unplow", limit: int = 5) -> List[Dict[str, Any]]:
+    cmd = [
+        "gh", "pr", "list",
+        "--repo", repo,
+        "--state", "all",
+        "--limit", str(limit),
+        "--json", "number,title,state,url",
+    ]
+    prs = run_gh_json(cmd)
     copilot_records: List[Dict[str, Any]] = []
 
     for pr in prs:
@@ -95,7 +102,6 @@ def generate_markdown_report(records: List[Dict[str, Any]], output_path: str) ->
     lines: List[str] = [
         "# Path: copilot-pr-comments.md",
         "# copilot-pr-comments.md - Extracted GitHub Copilot PR Review Comments",
-        "# Max Column: 80 Columns",
         "",
         "# Copilot Pull Request Review Comments & Findings",
         "",
@@ -104,7 +110,8 @@ def generate_markdown_report(records: List[Dict[str, Any]], output_path: str) ->
     ]
 
     for rec in sorted(records, key=lambda x: (x["pr_number"], x["created_at"]), reverse=True):
-        lines.append(f"## PR #{rec['pr_number']}: {rec['pr_title']}")
+        title = rec["pr_title"].replace("\n", " ").strip()
+        lines.append(f"## PR #{rec['pr_number']}: {title}")
         lines.append(f"- **URL**: {rec['pr_url']}")
         lines.append(f"- **Type**: `{rec['type']}`")
         lines.append(f"- **User**: `{rec['user']}`")
@@ -118,7 +125,12 @@ def generate_markdown_report(records: List[Dict[str, Any]], output_path: str) ->
         lines.append("")
         lines.append("### Content")
         lines.append("```markdown")
-        lines.append(rec["body"].strip())
+        body_text = rec["body"].strip()
+        for p in body_text.split("\n"):
+            if len(p) <= 80:
+                lines.append(p)
+            else:
+                lines.extend(textwrap.wrap(p, width=80))
         lines.append("```")
         lines.append("")
         lines.append("---")
@@ -132,7 +144,7 @@ def generate_markdown_report(records: List[Dict[str, Any]], output_path: str) ->
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract Copilot comments from PRs.")
     parser.add_argument("--repo", default="aomaker-org/unplow", help="GitHub repo")
-    parser.add_argument("--limit", type=int, default=50, help="Number of PRs to inspect")
+    parser.add_argument("--limit", type=int, default=5, help="Number of PRs to inspect")
     parser.add_argument("--output-json", default="copilot-pr-comments.json", help="Path for JSON output")
     parser.add_argument("--output-md", default="copilot-pr-comments.md", help="Path for Markdown output")
     args = parser.parse_args()
